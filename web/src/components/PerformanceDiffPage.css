@@ -1,21 +1,33 @@
 .pd-page {
+  --pd-space: clamp(5px, 0.35vw, 7px);
+  --pd-space-2: calc(var(--pd-space) * 2);
+  --pd-space-3: calc(var(--pd-space) * 3);
+  --pd-control-height: clamp(30px, 2.2vw, 36px);
   height: 100%;
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--pd-space-2);
   overflow: hidden;
 }
+.pd-page .btn,
+.pd-page .chip,
+.pd-page .input {
+  min-height: var(--pd-control-height);
+  padding-inline: var(--pd-space-2);
+}
+.pd-page .btn-sm,
+.pd-page .chip { min-height: calc(var(--pd-control-height) * 0.8); }
 
 /* ------------------------------------------------------------- inputs -- */
 
 .pd-compare-bar {
   min-height: 48px;
-  padding: 8px 12px;
+  padding: var(--pd-space) var(--pd-space-2);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 12px;
+  gap: var(--pd-space-2);
 }
 .pd-compare-side { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .pd-compare-side strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -23,7 +35,7 @@
 .pd-sources {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--pd-space);
   align-items: stretch;
 }
 .pd-source { min-width: 0; }
@@ -32,10 +44,10 @@
 .pd-source-current,
 .pd-source-empty {
   min-height: 46px;
-  padding: 8px 12px;
+  padding: var(--pd-space) var(--pd-space-2);
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--pd-space-2);
 }
 .pd-source-current { justify-content: space-between; }
 .pd-source-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -58,7 +70,7 @@
   display: flex;
   flex: 1;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--pd-space-2);
 }
 .pd-workspace { overflow: auto; }
 .pd-workspace {
@@ -67,7 +79,7 @@
   padding-bottom: 1px;
 }
 .pd-content { flex: none; }
-.pd-controls { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: 18px; }
+.pd-controls { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--pd-space-3); }
 .pd-view-tabs,
 .pd-threshold { display: flex; align-items: center; gap: 4px; }
 .pd-warning {
@@ -100,7 +112,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  gap: 10px;
+  gap: var(--pd-space-2);
   overflow: hidden;
   white-space: nowrap;
 }
@@ -112,11 +124,11 @@
 .pd-flame-panel { min-height: 360px; overflow: hidden; }
 .pd-flame-toolbar {
   min-height: 48px;
-  padding: 7px 10px;
+  padding: var(--pd-space) var(--pd-space-2);
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--pd-space-2);
   border-bottom: 1px solid var(--border);
 }
 .pd-flame-toolbar > div:first-child { display: flex; flex-direction: column; }
@@ -130,11 +142,11 @@
   position: absolute;
   height: 31px;
   min-width: 2px;
-  padding: 0 6px;
+  padding: 0 var(--pd-space);
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 6px;
+  gap: var(--pd-space);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--border-strong) 80%, transparent);
   border-radius: 3px;
@@ -154,10 +166,10 @@
 .pd-frame-delta { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pd-frame-delta { flex: none; font-size: var(--font-size-xs); }
 .pd-flame-legend {
-  padding: 6px 10px;
+  padding: var(--pd-space) var(--pd-space-2);
   display: flex;
   justify-content: flex-end;
-  gap: 14px;
+  gap: var(--pd-space-2);
   border-top: 1px solid var(--border);
   color: var(--text-faint);
   font-size: var(--font-size-xs);
@@ -293,11 +305,11 @@
 
 .pd-selection {
   min-height: 64px;
-  padding: 9px 12px;
+  padding: var(--pd-space) var(--pd-space-2);
   display: grid;
   grid-template-columns: minmax(200px, 1fr) auto auto auto auto auto;
   align-items: center;
-  gap: 16px;
+  gap: var(--pd-space-2);
 }
 .pd-selection-name { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 9px; }
 .pd-selection-name .micro-label { grid-column: 1 / -1; }

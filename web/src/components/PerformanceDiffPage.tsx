@@ -198,7 +198,7 @@ interface FlameCell {
   depth: number
 }
 
-function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | null): { cells: FlameCell[]; depth: number } {
+export function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | null): { cells: FlameCell[]; depth: number } {
   const focus = focusedKey === null ? null : rows.find((row) => row.key === focusedKey) ?? null
   const visible = focus === null
     ? rows
@@ -221,12 +221,17 @@ function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | null): { 
   const place = (siblings: PerformancePathDiff[], left: number, width: number, depth: number): void => {
     const ordered = [...siblings].sort((a, b) => weight(b) - weight(a))
     const total = ordered.reduce((sum, row) => sum + weight(row), 0)
+    const scale = width / total
     let cursor = left
     for (const row of ordered) {
-      const cellWidth = width * weight(row) / total
+      const cellWidth = weight(row) * scale
       cells.push({ row, left: cursor, width: cellWidth, depth })
       const descendants = children.get(row.key)
-      if (descendants !== undefined) place(descendants, cursor, cellWidth, depth + 1)
+      if (descendants !== undefined) {
+        const childScale = cellWidth / weight(row)
+        const childrenWidth = descendants.reduce((sum, child) => sum + weight(child) * childScale, 0)
+        place(descendants, cursor, childrenWidth, depth + 1)
+      }
       cursor += cellWidth
     }
   }
