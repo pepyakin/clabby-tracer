@@ -24,7 +24,7 @@ import {
   type TimeRange,
   type TraceSummary,
 } from './lib/model'
-import { DEFAULT_RANGE, resolveRange } from './lib/range'
+import { DEFAULT_RANGE, DEFAULT_REFRESH_SECONDS, resolveRange } from './lib/range'
 import { groupEventSummaries, groupTraceSummaries } from './lib/searchResults'
 import './App.css'
 
@@ -185,7 +185,7 @@ export default function App() {
     }))
   }, [])
 
-  const [refreshSec, setRefreshSec] = useState(15)
+  const [refreshSec, setRefreshSec] = useState(DEFAULT_REFRESH_SECONDS)
   useEffect(() => {
     if (refreshSec === 0 || route.view !== 'search') return
     const id = setInterval(onRefresh, refreshSec * 1000)

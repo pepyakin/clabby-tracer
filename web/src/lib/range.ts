@@ -19,6 +19,7 @@ export const RANGE_PRESETS: readonly RangePreset[] = [
 ]
 
 export const DEFAULT_RANGE: RangeSelection = { kind: 'relative', seconds: 15 * 60 }
+export const DEFAULT_REFRESH_SECONDS = 0
 
 /** Resolve a selection to absolute unix-second bounds at the given instant. */
 export function resolveRange(sel: RangeSelection, nowMs: number): TimeRange {
