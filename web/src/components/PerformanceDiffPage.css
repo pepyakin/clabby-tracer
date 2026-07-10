@@ -95,7 +95,10 @@
 .pd-warning,
 .pd-notice { flex: none; }
 .pd-view-tabs,
-.pd-threshold { display: flex; align-items: center; gap: 4px; }
+.pd-threshold,
+.pd-metric-picker { display: flex; align-items: center; gap: 4px; }
+.pd-metric-picker { white-space: nowrap; }
+.pd-metric-picker .chip { min-width: 42px; padding-inline: 8px; }
 .pd-warning {
   padding: 7px 10px;
   border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
@@ -131,6 +134,11 @@
   white-space: nowrap;
 }
 .pd-summary-line > strong:first-child { max-width: 220px; overflow: hidden; text-overflow: ellipsis; }
+.pd-summary-metric { display: inline-flex; align-items: baseline; gap: 4px; }
+.pd-summary-metric.active { color: var(--text); }
+.pd-summary-metric i { color: var(--warn); font-size: var(--font-size-xs); font-style: normal; }
+.pd-mixed-verdict { padding: 3px 7px; border-radius: 4px; color: var(--text-muted); background: var(--surface-hover); }
+.pd-mixed-verdict.mixed { color: var(--warn); background: color-mix(in srgb, var(--warn) 10%, transparent); }
 .pd-summary-samples { padding-left: 10px; border-left: 1px solid var(--border); }
 
 /* --------------------------------------------------------- flame graph -- */
@@ -335,10 +343,11 @@
   min-height: 64px;
   padding: var(--pd-space) var(--pd-space-2);
   display: grid;
-  grid-template-columns: minmax(200px, 1fr) auto auto auto auto auto;
+  grid-template-columns: minmax(200px, 1fr) auto auto auto auto auto auto;
   align-items: center;
   gap: var(--pd-space-2);
 }
+.pd-selection-metric { text-transform: uppercase; }
 .pd-selection-name { min-width: 0; display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 9px; }
 .pd-selection-name .micro-label { grid-column: 1 / -1; }
 .pd-selection-name strong,
@@ -348,7 +357,7 @@
 .pd-details-header {
   padding: 12px 14px;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto auto;
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
   align-items: center;
   gap: 14px;
   border-bottom: 1px solid var(--border);
@@ -420,7 +429,8 @@
   display: grid;
   grid-template-areas:
     "nodes behavior"
-    "operations impact";
+    "operations impact"
+    "quantiles impact";
   grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr);
   align-items: stretch;
   gap: 8px;
@@ -429,6 +439,7 @@
 .pd-analysis-sidebar { display: contents; }
 .pd-node-distribution-card { grid-area: nodes; }
 .pd-operation-distribution-card { grid-area: operations; }
+.pd-quantile-card { grid-area: quantiles; }
 .pd-behavior-card { grid-area: behavior; }
 .pd-node-impact { grid-area: impact; }
 .pd-investigation-card { min-width: 0; overflow: hidden; }
@@ -450,6 +461,15 @@
 .pd-ecdf path.baseline { stroke: var(--text-muted); }
 .pd-ecdf path.candidate { stroke: var(--accent); }
 .pd-ecdf text { fill: var(--text-faint); font: 10px var(--font-mono); }
+.pd-quantile-shift { display: block; width: 100%; height: 150px; margin-top: 4px; }
+.pd-quantile-shift line.zero,
+.pd-quantile-shift line.tick { stroke: var(--border-strong); stroke-width: 1; }
+.pd-quantile-shift path { fill: none; stroke: var(--text-muted); stroke-width: 2; }
+.pd-quantile-shift circle { stroke: var(--surface); stroke-width: 1; }
+.pd-quantile-shift circle.sparse { stroke: var(--warn); stroke-width: 2; stroke-dasharray: 2 2; }
+.pd-quantile-shift circle.faster { fill: var(--perf-improved); }
+.pd-quantile-shift circle.slower { fill: var(--perf-regressed); }
+.pd-quantile-shift text { fill: var(--text-faint); font: 10px var(--font-mono); }
 .pd-legend { display: flex; gap: 12px; justify-content: center; font-size: var(--font-size-sm); }
 .pd-legend .baseline { color: var(--text-muted); }
 .pd-legend .candidate { color: var(--accent-text); }
@@ -488,6 +508,7 @@
     grid-template-areas:
       "nodes"
       "operations"
+      "quantiles"
       "behavior"
       "impact";
     grid-template-columns: 1fr;

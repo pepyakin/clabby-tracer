@@ -4,6 +4,8 @@ import type {
   PerformanceDiffPageProps,
   PerformanceDiff,
   PerformanceInstanceDiff,
+  PerformanceMetric,
+  PerformanceMetricDiff,
   PerformancePathDiff,
   PerformanceSource,
   TraceModel,
@@ -133,9 +135,15 @@ function pValue(value: number | null): string {
   return value.toFixed(3)
 }
 
-function interval(row: PerformancePathDiff): string {
-  if (row.relativeInterval === null) return '—'
-  return `[${percent(row.relativeInterval.low)}, ${percent(row.relativeInterval.high)}]`
+const PERFORMANCE_METRICS: PerformanceMetric[] = ['mean', 'median', 'p95', 'p99']
+
+function metricLabel(metric: PerformanceMetric): string {
+  return metric === 'median' ? 'p50' : metric
+}
+
+function interval(metric: PerformanceMetricDiff): string {
+  if (metric.relativeInterval === null) return '—'
+  return `[${percent(metric.relativeInterval.low)}, ${percent(metric.relativeInterval.high)}]`
 }
 
 function usePerformanceAnalysis(
@@ -175,39 +183,66 @@ function usePerformanceAnalysis(
   return state
 }
 
-function Evidence({ row }: { row: PerformancePathDiff }) {
-  if (row.evidence !== 'inconclusive') {
-    const arrow = row.evidence === 'regressed' ? '↑' : row.evidence === 'improved' ? '↓' : ''
-    return <span className={`pd-evidence pd-${row.evidence}`}>{arrow} {row.evidence.replace('-', ' ')}</span>
+function Evidence({ row, metric = 'mean' }: { row: PerformancePathDiff; metric?: PerformanceMetric }) {
+  const result = row.metrics[metric]
+  if (!result.reliable) {
+    return <span className="pd-evidence pd-descriptive" title="Too few observations to estimate this tail reliably">sparse tail</span>
+  }
+  if (result.evidence !== 'inconclusive') {
+    const arrow = result.evidence === 'regressed' ? '↑' : result.evidence === 'improved' ? '↓' : ''
+    return <span className={`pd-evidence pd-${result.evidence}`}>{arrow} {result.evidence.replace('-', ' ')}</span>
   }
 
-  const direction = (row.relativeChange ?? 0) <= 0 ? 'faster' : 'slower'
+  const direction = (result.relativeChange ?? 0) <= 0 ? 'faster' : 'slower'
   const arrow = direction === 'faster' ? '↓' : '↑'
-  const intervalCrossesZero = row.relativeInterval !== null
-    && row.relativeInterval.low <= 0
-    && row.relativeInterval.high >= 0
-  const adjustedPIsHigh = row.adjustedP !== null && row.adjustedP >= 0.05
+  const intervalCrossesZero = result.relativeInterval !== null
+    && result.relativeInterval.low <= 0
+    && result.relativeInterval.high >= 0
+  const adjustedPIsHigh = result.adjustedP !== null && result.adjustedP >= 0.05
 
   let reason = 'confidence interval overlaps the noise threshold'
   if (intervalCrossesZero) reason = 'confidence interval crosses zero'
-  else if (adjustedPIsHigh) reason = `adjusted p-value is ${pValue(row.adjustedP)}`
+  else if (adjustedPIsHigh) reason = `adjusted p-value is ${pValue(result.adjustedP)}`
 
   return <span
     className="pd-evidence pd-inconclusive"
     title={`Observed ${direction}, but the result is not statistically resolved because the ${reason}.`}
   >
-    {arrow} {direction} trend · {intervalCrossesZero ? 'CI crosses zero' : adjustedPIsHigh ? `adjusted p ${pValue(row.adjustedP)}` : 'overlaps noise'}
+    {arrow} {direction} trend · {intervalCrossesZero ? 'CI crosses zero' : adjustedPIsHigh ? `adjusted p ${pValue(result.adjustedP)}` : 'overlaps noise'}
   </span>
 }
 
-function ComparisonSummary({ row, diff }: { row: PerformancePathDiff; diff: PerformanceDiff }) {
+function MetricPicker({ value, onChange }: { value: PerformanceMetric; onChange: (metric: PerformanceMetric) => void }) {
+  return <span className="pd-metric-picker" aria-label="color flamegraph by">
+    <span className="faint">color by</span>
+    {PERFORMANCE_METRICS.map((metric) => <button
+      type="button"
+      className={`chip ${value === metric ? 'active' : ''}`}
+      key={metric}
+      onClick={() => onChange(metric)}
+    >{metricLabel(metric)}</button>)}
+  </span>
+}
+
+function ComparisonSummary({ row, diff, metric }: { row: PerformancePathDiff; diff: PerformanceDiff; metric: PerformanceMetric }) {
+  const mean = row.metrics.mean.relativeChange
+  const tail = row.metrics.p95.relativeChange
+  const mixed = row.metrics.p95.reliable
+    && mean !== null
+    && tail !== null
+    && ((mean < -diff.threshold && tail > diff.threshold) || (mean > diff.threshold && tail < -diff.threshold))
+  const verdict = mixed
+    ? `${mean < 0 ? 'faster overall' : 'slower overall'} · ${tail > 0 ? 'worse tail' : 'better tail'}`
+    : mean !== null && mean < -diff.threshold ? 'broad improvement' : mean !== null && mean > diff.threshold ? 'broad regression' : 'stable overall'
   return (
     <div className="pd-summary-line">
       <strong title={row.path.join(' / ')}>{row.path.at(-1)}</strong>
-      <span className="mono-num">{formatNs(row.baseline.meanNs)} → {formatNs(row.candidate.meanNs)}</span>
-      <strong className={`mono-num pd-direction ${row.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(row.relativeChange)}</strong>
-      <span className="faint mono-num">95% {interval(row)}</span>
-      <Evidence row={row} />
+      {(['mean', 'median', 'p95', 'p99'] as const).map((item) => <span className={`pd-summary-metric${metric === item ? ' active' : ''}`} key={item}>
+        <span className="faint">{metricLabel(item)}</span>
+        <strong className={`mono-num pd-direction ${(row.metrics[item].relativeChange ?? 0) > 0 ? 'slower' : 'faster'}`}>{percent(row.metrics[item].relativeChange)}</strong>
+        {!row.metrics[item].reliable && <i title="Too few observations for a reliable estimate">sparse</i>}
+      </span>)}
+      <span className={`pd-mixed-verdict${mixed ? ' mixed' : ''}`}>{verdict}</span>
       <span className="pd-summary-samples faint">{diff.comparisonMode} · {diff.baselineInstances.length} → {diff.candidateInstances.length} nodes</span>
     </div>
   )
@@ -277,15 +312,22 @@ export function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | nu
   return { cells, depth: Math.max(0, ...cells.map((cell) => cell.depth)) }
 }
 
-function frameBackground(row: PerformancePathDiff): string | undefined {
-  if (row.evidence === 'added' || row.evidence === 'removed') return undefined
-  if (row.relativeChange === null || row.relativeChange === 0) return undefined
-  const token = row.relativeChange > 0 ? '--perf-regressed' : '--perf-improved'
-  const strength = Math.min(76, 18 + Math.abs(row.relativeChange) * 110)
+function frameBackground(row: PerformancePathDiff, metric: PerformanceMetric): string | undefined {
+  const result = row.metrics[metric]
+  if (result.evidence === 'added' || result.evidence === 'removed') return undefined
+  if (result.relativeChange === null || result.relativeChange === 0) return undefined
+  const token = result.relativeChange > 0 ? '--perf-regressed' : '--perf-improved'
+  const strength = result.reliable ? Math.min(76, 18 + Math.abs(result.relativeChange) * 110) : 12
   return `color-mix(in srgb, var(${token}) ${strength}%, var(--surface-hover))`
 }
 
-function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff[]; selectedKey: string | null; onSelect: (key: string) => void }) {
+function ImpactTree({ rows, metric, onMetricChange, selectedKey, onSelect }: {
+  rows: PerformancePathDiff[]
+  metric: PerformanceMetric
+  onMetricChange: (metric: PerformanceMetric) => void
+  selectedKey: string | null
+  onSelect: (key: string) => void
+}) {
   const [focusedKey, setFocusedKey] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [plotWidth, setPlotWidth] = useState(0)
@@ -349,9 +391,10 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
       <div className="pd-flame-toolbar">
         <div>
           <span className="panel-title">aggregate differential call tree</span>
-          <span className="pd-flame-help faint">width = share of sibling aggregate cost · color = performance change · double-click = focus</span>
+          <span className="pd-flame-help faint">width = aggregate cost · color = {metricLabel(metric)} change · double-click = focus</span>
         </div>
         <div className="pd-flame-actions">
+          <MetricPicker value={metric} onChange={onMetricChange} />
           <input className="input pd-flame-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="find a span" aria-label="find a span" />
           {(view.low > 0 || view.high < 100) && <button type="button" className="btn btn-sm" onClick={() => setView({ low: 0, high: 100 })}>reset zoom</button>}
           {focused !== null && <button type="button" className="btn btn-sm" onClick={() => setFocusedKey(null)}>reset focus</button>}
@@ -376,7 +419,7 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
             left: `${cell.left}%`,
             width: `${cell.width}%`,
             top: `${cell.depth * 3}px`,
-            background: frameBackground(cell.row),
+            background: frameBackground(cell.row, metric),
           }} />)}
         </div>
       </FlameTimeline>
@@ -388,21 +431,21 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
             return <button
               type="button"
               key={cell.row.key}
-              className={`pd-frame pd-${cell.row.evidence}${selectedKey === cell.row.key ? ' selected' : ''}${matching ? ' matching' : ''}${dimmed ? ' dimmed' : ''}`}
+              className={`pd-frame pd-${cell.row.metrics[metric].evidence}${selectedKey === cell.row.key ? ' selected' : ''}${matching ? ' matching' : ''}${dimmed ? ' dimmed' : ''}`}
               style={{
                 left: `${position.left}px`,
                 width: `${position.width}px`,
                 paddingInline: position.width >= 48 ? '8px' : position.width >= 20 ? '4px' : '0',
                 top: `${cell.depth * rowHeight + 2}px`,
                 height: `${barHeight}px`,
-                background: frameBackground(cell.row),
+                background: frameBackground(cell.row, metric),
               }}
               onClick={() => onSelect(cell.row.key)}
               onDoubleClick={() => setFocusedKey(cell.row.key)}
-              title={`${cell.row.path.join(' / ')}\n${formatNs(cell.row.baseline.meanNs)} → ${formatNs(cell.row.candidate.meanNs)} (${percent(cell.row.relativeChange)})`}
+              title={`${cell.row.path.join(' / ')}\n${metricLabel(metric)}: ${formatNs(cell.row.metrics[metric].baselineNs)} → ${formatNs(cell.row.metrics[metric].candidateNs)} (${percent(cell.row.metrics[metric].relativeChange)})${cell.row.metrics[metric].reliable ? '' : '\nSparse tail: treat this as descriptive.'}`}
             >
               <span className="pd-frame-name">{cell.row.path.at(-1)}</span>
-              <span className="pd-frame-delta mono-num">{percent(cell.row.relativeChange)}</span>
+              <span className="pd-frame-delta mono-num">{percent(cell.row.metrics[metric].relativeChange)}</span>
             </button>
           })}
         </div>
@@ -417,16 +460,18 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
   )
 }
 
-function SelectionInspector({ row, onAnalyze, onClear }: { row: PerformancePathDiff; onAnalyze: () => void; onClear: () => void }) {
+function SelectionInspector({ row, metric, onAnalyze, onClear }: { row: PerformancePathDiff; metric: PerformanceMetric; onAnalyze: () => void; onClear: () => void }) {
+  const result = row.metrics[metric]
   return <div className="panel pd-selection">
     <div className="pd-selection-name">
       <span className="micro-label">selected span</span>
       <strong title={row.path.join(' / ')}>{row.path.at(-1)}</strong>
       <span className="faint" title={row.path.join(' / ')}>{row.path.slice(0, -1).join(' / ') || 'root'}</span>
     </div>
-    <span className="mono-num">{formatNs(row.baseline.meanNs)} → {formatNs(row.candidate.meanNs)}</span>
-    <strong className={`mono-num pd-direction ${row.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(row.relativeChange)}</strong>
-    <Evidence row={row} />
+    <span className="pd-selection-metric faint">{metricLabel(metric)}</span>
+    <span className="mono-num">{formatNs(result.baselineNs)} → {formatNs(result.candidateNs)}</span>
+    <strong className={`mono-num pd-direction ${result.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(result.relativeChange)}</strong>
+    <Evidence row={row} metric={metric} />
     <button type="button" className="btn btn-primary btn-sm" onClick={onAnalyze}>analyze span</button>
     <button type="button" className="btn btn-ghost btn-sm" onClick={onClear} aria-label="clear selected span">×</button>
   </div>
@@ -439,7 +484,13 @@ function CostBars({ row, max }: { row: PerformancePathDiff; max: number }) {
   </span>
 }
 
-function PathExplorer({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff[]; selectedKey: string | null; onSelect: (key: string) => void }) {
+function PathExplorer({ rows, metric, onMetricChange, selectedKey, onSelect }: {
+  rows: PerformancePathDiff[]
+  metric: PerformanceMetric
+  onMetricChange: (metric: PerformanceMetric) => void
+  selectedKey: string | null
+  onSelect: (key: string) => void
+}) {
   const [query, setQuery] = useState('')
   const [sort, setSort] = useState<'impact' | 'cost' | 'name'>('impact')
   const filtered = useMemo(() => {
@@ -448,16 +499,17 @@ function PathExplorer({ rows, selectedKey, onSelect }: { rows: PerformancePathDi
     next.sort((a, b) => {
       if (sort === 'name') return a.path.join('/').localeCompare(b.path.join('/'))
       if (sort === 'cost') return Math.max(b.baseline.meanNs, b.candidate.meanNs) - Math.max(a.baseline.meanNs, a.candidate.meanNs)
-      return Math.abs(b.absoluteChangeNs) - Math.abs(a.absoluteChangeNs)
+      return Math.abs(b.metrics[metric].absoluteChangeNs) - Math.abs(a.metrics[metric].absoluteChangeNs)
     })
     return next
-  }, [rows, query, sort])
+  }, [rows, query, sort, metric])
   const max = Math.max(1, ...filtered.map((row) => Math.max(row.baseline.meanNs, row.candidate.meanNs)))
   return (
     <section className="panel pd-explorer">
       <div className="pd-explorer-toolbar">
-        <div><span className="panel-title">path explorer</span><span className="faint"> {filtered.length} paths</span></div>
+        <div><span className="panel-title">{metric === 'mean' ? 'path explorer' : `${metricLabel(metric)} changes`}</span><span className="faint"> {filtered.length} paths</span></div>
         <input className="input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="filter paths" aria-label="filter paths" />
+        <MetricPicker value={metric} onChange={onMetricChange} />
         <span className="pd-sort">
           {(['impact', 'cost', 'name'] as const).map((value) => <button type="button" className={`chip ${sort === value ? 'active' : ''}`} key={value} onClick={() => setSort(value)}>{value}</button>)}
         </span>
@@ -467,11 +519,11 @@ function PathExplorer({ rows, selectedKey, onSelect }: { rows: PerformancePathDi
         {filtered.slice(0, 2000).map((row) => <button type="button" className={`pd-path-card${selectedKey === row.key ? ' selected' : ''}`} key={row.key} onClick={() => onSelect(row.key)}>
           <span className="pd-path-card-top">
             <strong>{row.path.at(-1)}</strong>
-            <span className={`pd-direction mono-num ${row.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(row.relativeChange)}</span>
+            <span className={`pd-direction mono-num ${row.metrics[metric].absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(row.metrics[metric].relativeChange)}</span>
           </span>
           <span className="pd-path-card-path faint" title={row.path.join(' / ')}>{row.path.slice(0, -1).join(' / ') || 'root'}</span>
           <CostBars row={row} max={max} />
-          <span className="pd-path-card-values mono-num"><span>{formatNs(row.baseline.meanNs)}</span><span>→</span><span>{formatNs(row.candidate.meanNs)}</span><Evidence row={row} /></span>
+          <span className="pd-path-card-values mono-num"><span>{formatNs(row.metrics[metric].baselineNs)}</span><span>→</span><span>{formatNs(row.metrics[metric].candidateNs)}</span><Evidence row={row} metric={metric} /></span>
         </button>)}
       </div>
       {filtered.length > 2000 && <div className="pd-cap faint">showing 2,000 of {filtered.length} paths</div>}
@@ -671,6 +723,38 @@ function NodeDistributionPlot({ instances }: { instances: PerformanceInstanceDif
   </svg>
 }
 
+function QuantileShiftPlot({ baseline, candidate }: { baseline: number[]; candidate: number[] }) {
+  const [svgRef, width] = usePlotWidth(720)
+  const percentiles = [0.5, 0.75, 0.9, 0.95, 0.99]
+  const points = percentiles.map((percentile) => ({
+    percentile,
+    delta: quantileValue(candidate, percentile) - quantileValue(baseline, percentile),
+  }))
+  const left = 48
+  const right = width - 12
+  const top = 16
+  const bottom = 126
+  const maxMagnitude = Math.max(1, ...points.map((point) => Math.abs(point.delta)))
+  const x = (percentile: number) => left + (percentile - 0.5) / 0.49 * (right - left)
+  const y = (delta: number) => (top + bottom) / 2 - delta / maxMagnitude * (bottom - top) / 2
+  const path = points.map((point, index) => `${index === 0 ? 'M' : 'L'}${x(point.percentile)},${y(point.delta)}`).join(' ')
+
+  return <svg ref={svgRef} className="pd-quantile-shift" viewBox={`0 0 ${width} 155`} role="img" aria-label="latency change by percentile">
+    <line className="zero" x1={left} y1={y(0)} x2={right} y2={y(0)} />
+    <text x={left - 8} y={top + 4} textAnchor="end">+{formatNs(maxMagnitude)}</text>
+    <text x={left - 8} y={y(0) + 4} textAnchor="end">0</text>
+    <text x={left - 8} y={bottom + 4} textAnchor="end">−{formatNs(maxMagnitude)}</text>
+    <path d={path} />
+    {points.map((point) => <g key={point.percentile}>
+      <line className="tick" x1={x(point.percentile)} y1={bottom + 3} x2={x(point.percentile)} y2={bottom + 7} />
+      <text x={x(point.percentile)} y={bottom + 20} textAnchor={point.percentile === 0.5 ? 'start' : point.percentile === 0.99 ? 'end' : 'middle'}>p{point.percentile * 100}</text>
+      <circle className={`${point.delta > 0 ? 'slower' : 'faster'}${point.percentile === 0.99 && Math.min(baseline.length, candidate.length) < 200 ? ' sparse' : ''}`} cx={x(point.percentile)} cy={y(point.delta)} r="4">
+        <title>p{point.percentile * 100}: {point.delta > 0 ? '+' : '−'}{formatNs(Math.abs(point.delta))}</title>
+      </circle>
+    </g>)}
+  </svg>
+}
+
 function MetricCard({ label, value, note, tone }: { label: string; value: string; note: string; tone?: 'faster' | 'slower' }) {
   return <div className={`pd-metric-card${tone === undefined ? '' : ` ${tone}`}`}>
     <span className="micro-label">{label}</span>
@@ -679,7 +763,7 @@ function MetricCard({ label, value, note, tone }: { label: string; value: string
   </div>
 }
 
-function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDiff; rows: PerformancePathDiff[]; onSelect: (key: string) => void; onClose: () => void }) {
+function PathDetails({ row, rows, metric, onMetricChange, onSelect, onClose }: { row: PerformancePathDiff; rows: PerformancePathDiff[]; metric: PerformanceMetric; onMetricChange: (metric: PerformanceMetric) => void; onSelect: (key: string) => void; onClose: () => void }) {
   const ancestors = row.path.slice(0, -1).map((_, index) => rows.find((candidate) =>
     candidate.path.length === index + 1 && candidate.path.every((part, partIndex) => part === row.path[partIndex]),
   )).filter((candidate): candidate is PerformancePathDiff => candidate !== undefined)
@@ -699,6 +783,7 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
     .sort((a, b) => (b.candidateMeanNs ?? 0) - (a.candidateMeanNs ?? 0))
     .slice(0, 5)
   const childMax = Math.max(1, ...children.map((child) => Math.max(child.baseline.meanNs, child.candidate.meanNs)))
+  const selectedMetric = row.metrics[metric]
   return (
     <section className="panel pd-details">
       <div className="pd-details-header">
@@ -707,15 +792,16 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
           <h2>{row.path.at(-1)}</h2>
           <div className="faint">{row.path.length === 1 ? 'root operation' : `${row.path.length - 1} callers · ${children.length} direct callees`}</div>
         </div>
-        <Evidence row={row} />
+        <MetricPicker value={metric} onChange={onMetricChange} />
+        <Evidence row={row} metric={metric} />
         <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>×</button>
       </div>
       <div className="pd-details-body">
         <div className="pd-metrics">
-          <MetricCard label="baseline mean" value={formatNs(row.baseline.meanNs)} note={`${row.baseline.samples} operations · p95 ${formatNs(row.baseline.p95Ns)}`} />
-          <MetricCard label="candidate mean" value={formatNs(row.candidate.meanNs)} note={`${row.candidate.samples} operations · p95 ${formatNs(row.candidate.p95Ns)}`} />
-          <MetricCard label="absolute change" value={`${row.absoluteChangeNs > 0 ? '+' : '−'}${formatNs(Math.abs(row.absoluteChangeNs))}`} note={`${percent(row.relativeChange)} relative`} tone={row.absoluteChangeNs > 0 ? 'slower' : 'faster'} />
-          <MetricCard label="confidence" value={interval(row)} note={`p ${pValue(row.rawP)} · adjusted ${pValue(row.adjustedP)} · Cliff δ ${row.effectSize?.toFixed(2) ?? '—'}`} />
+          <MetricCard label={`baseline ${metricLabel(metric)}`} value={formatNs(selectedMetric.baselineNs)} note={`${row.baseline.samples} operations · mean ${formatNs(row.baseline.meanNs)}`} />
+          <MetricCard label={`candidate ${metricLabel(metric)}`} value={formatNs(selectedMetric.candidateNs)} note={`${row.candidate.samples} operations · mean ${formatNs(row.candidate.meanNs)}`} />
+          <MetricCard label="absolute change" value={`${selectedMetric.absoluteChangeNs > 0 ? '+' : '−'}${formatNs(Math.abs(selectedMetric.absoluteChangeNs))}`} note={`${percent(selectedMetric.relativeChange)} relative`} tone={selectedMetric.absoluteChangeNs > 0 ? 'slower' : 'faster'} />
+          <MetricCard label="confidence" value={selectedMetric.reliable ? interval(selectedMetric) : 'sparse tail'} note={metric === 'mean' ? `adjusted p ${pValue(selectedMetric.adjustedP)} · Cliff δ ${row.effectSize?.toFixed(2) ?? '—'}` : selectedMetric.reliable ? 'order-statistic 95% interval' : 'needs more tail observations'} />
         </div>
         <section className="pd-call-stack">
           <nav className="pd-call-path" aria-label="call stack">
@@ -744,6 +830,10 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
               <div className="pd-section-heading"><span className="panel-title">operation distribution</span><span className="faint">empirical cumulative distribution</span></div>
               <Ecdf baseline={row.baselineValuesNs} candidate={row.candidateValuesNs} />
               <div className="pd-legend"><span className="baseline">baseline</span><span className="candidate">candidate</span></div>
+            </section>
+            <section className="pd-investigation-card pd-quantile-card">
+              <div className="pd-section-heading"><span className="panel-title">quantile shift</span><span className="faint">candidate − baseline · below zero is faster{Math.min(row.baseline.samples, row.candidate.samples) < 200 ? ' · p99 sparse' : ''}</span></div>
+              <QuantileShiftPlot baseline={row.baselineValuesNs} candidate={row.candidateValuesNs} />
             </section>
           </div>
           <aside className="pd-analysis-sidebar">
@@ -791,6 +881,7 @@ export default function PerformanceDiffPage({
   onRouteChange,
 }: PerformanceDiffPageProps) {
   const [detailsOpen, setDetailsOpen] = useState(false)
+  const [metric, setMetric] = useState<PerformanceMetric>('mean')
   const baselineLive = useQuery({
     queryKey: ['performance-source', baselineQuery],
     queryFn: () => loadQuery(baselineQuery!),
@@ -896,6 +987,8 @@ export default function PerformanceDiffPage({
             <PathDetails
               row={selected}
               rows={analysis.result.paths}
+              metric={metric}
+              onMetricChange={setMetric}
               onSelect={(key) => route({ selectedPath: key })}
               onClose={() => setDetailsOpen(false)}
             />
@@ -906,7 +999,7 @@ export default function PerformanceDiffPage({
                   <button type="button" key={item} className={`chip ${view === item ? 'active' : ''}`} onClick={() => route({ view: item })}>{item === 'paths' ? 'hot paths' : item}</button>
                 ))}
               </span>
-              {analysis.result.root !== null && <ComparisonSummary row={analysis.result.root} diff={analysis.result} />}
+              {analysis.result.root !== null && <ComparisonSummary row={analysis.result.root} diff={analysis.result} metric={metric} />}
               <span className="pd-threshold">
                 <span className="faint">noise threshold</span>
                 {[0.01, 0.02, 0.05, 0.1].map((value) => (
@@ -916,9 +1009,9 @@ export default function PerformanceDiffPage({
             </div>
             {analysis.result.warning !== null && <div className={analysis.result.comparisonMode === 'unpaired' ? 'pd-notice' : 'pd-warning'}>{analysis.result.warning}</div>}
             {view === 'overview' && (
-              <ImpactTree rows={analysis.result.paths} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />
+              <ImpactTree rows={analysis.result.paths} metric={metric} onMetricChange={setMetric} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />
             )}
-            {view === 'paths' && <PathExplorer rows={analysis.result.paths} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />}
+            {view === 'paths' && <PathExplorer rows={analysis.result.paths} metric={metric} onMetricChange={setMetric} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />}
             {view === 'nodes' && (
               <NodeExplorer
                 rows={analysis.result.paths}
@@ -926,7 +1019,7 @@ export default function PerformanceDiffPage({
                 onSelect={(key) => route({ selectedPath: key })}
               />
             )}
-            {selected !== null && <SelectionInspector row={selected} onAnalyze={() => setDetailsOpen(true)} onClear={() => route({ selectedPath: null })} />}
+            {selected !== null && <SelectionInspector row={selected} metric={metric} onAnalyze={() => setDetailsOpen(true)} onClear={() => route({ selectedPath: null })} />}
           </div>}
         </div>
       ) : (
