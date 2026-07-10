@@ -22,11 +22,30 @@
 /* ------------------------------------------------------------- inputs -- */
 
 .pd-sources {
+  width: min(1200px, 100%);
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   gap: var(--pd-space);
   align-items: stretch;
 }
+.pd-source-setup {
+  min-height: 0;
+  flex: 1;
+  padding: var(--pd-space-3);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--pd-space-3);
+}
+.pd-source-setup-copy {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--pd-space);
+  text-align: center;
+}
+.pd-source-setup-copy strong { font-size: var(--font-size-lg); }
 .pd-source { min-width: 0; }
 .pd-source-kind { margin-left: 4px; }
 .pd-source-clear { margin-left: auto; }
@@ -43,8 +62,10 @@
 .pd-upload { color: var(--accent-text); cursor: pointer; white-space: nowrap; }
 .pd-upload input { display: none; }
 .pd-or { text-transform: uppercase; font-size: var(--font-size-xs); }
-.pd-query-form { min-width: 0; flex: 1; display: flex; gap: 6px; }
+.pd-query-form { min-width: 0; flex: 1; display: flex; align-items: stretch; gap: 6px; }
 .pd-query-form .input { min-width: 0; flex: 1; }
+.pd-query-form .input,
+.pd-query-form .btn { height: var(--pd-control-height); box-sizing: border-box; }
 .pd-source-error { padding: 0 12px 8px; color: var(--error); }
 .pd-swap { align-self: center; font-size: 16px; }
 .pd-empty { flex: 1; }

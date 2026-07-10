@@ -625,7 +625,12 @@ export default function PerformanceDiffPage({
 
   return (
     <div className="pd-page">
-      {(baselineModel === null || candidateModel === null) && <div className="pd-sources">
+      {(baselineModel === null || candidateModel === null) && <div className="pd-source-setup">
+        <div className="pd-source-setup-copy">
+          <strong>Choose a baseline and candidate</strong>
+          <span className="faint">Either side can be a searched comparison or an export.</span>
+        </div>
+        <div className="pd-sources">
         <SourceCard
           side="baseline"
           source={baseline}
@@ -683,11 +688,10 @@ export default function PerformanceDiffPage({
             route({ candidateQuery: null })
           }}
         />
+        </div>
       </div>}
       {baselineModel === null || candidateModel === null ? (
-        <div className="empty-state pd-empty">
-          Choose a baseline and candidate. Either side can be a searched comparison or an export.
-        </div>
+        null
       ) : analysis.loading ? (
         <div className="empty-state pd-empty"><span className="spinner" /> analyzing 10,000 resamples…</div>
       ) : analysis.error !== null ? (
