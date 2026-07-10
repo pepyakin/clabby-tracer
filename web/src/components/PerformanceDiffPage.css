@@ -140,16 +140,16 @@
 .pd-flame { position: relative; min-width: 800px; }
 .pd-frame {
   position: absolute;
-  height: 31px;
-  min-width: 2px;
-  padding: 0 var(--pd-space);
+  height: 16px;
+  min-width: 1px;
+  padding: 0 8px;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--pd-space);
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--border-strong) 80%, transparent);
-  border-radius: 3px;
+  border-radius: 5px;
   background: var(--surface-hover);
   color: var(--text);
   font: inherit;

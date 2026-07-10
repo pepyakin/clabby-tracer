@@ -9,6 +9,7 @@ function path(name: string[], meanNs: number): PerformancePathDiff {
     depth: name.length - 1,
     baseline: { meanNs },
     candidate: { meanNs },
+    instances: [{ instanceId: 'node', baselineMeanNs: meanNs, candidateMeanNs: meanNs }],
   } as PerformancePathDiff
 }
 
@@ -46,4 +47,5 @@ describe('layoutFlame', () => {
     expect(firstChildren[1].left + firstChildren[1].width).toBeLessThanOrEqual(first.left + first.width)
     expect(firstChildren[0].width / firstChildren[1].width).toBeCloseTo(80 / 70)
   })
+
 })

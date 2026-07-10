@@ -217,7 +217,11 @@ export function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | nu
     else siblings.push(row)
   }
   const cells: FlameCell[] = []
-  const weight = (row: PerformancePathDiff) => Math.max(1, row.baseline.meanNs, row.candidate.meanNs)
+  const weight = (row: PerformancePathDiff) => {
+    const baselineCost = row.instances.reduce((sum, instance) => sum + (instance.baselineMeanNs ?? 0), 0)
+    const candidateCost = row.instances.reduce((sum, instance) => sum + (instance.candidateMeanNs ?? 0), 0)
+    return Math.max(1, baselineCost, candidateCost)
+  }
   const place = (siblings: PerformancePathDiff[], left: number, width: number, depth: number): void => {
     const ordered = [...siblings].sort((a, b) => weight(b) - weight(a))
     const total = ordered.reduce((sum, row) => sum + weight(row), 0)
@@ -230,7 +234,8 @@ export function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | nu
       if (descendants !== undefined) {
         const childScale = cellWidth / weight(row)
         const childrenWidth = descendants.reduce((sum, child) => sum + weight(child) * childScale, 0)
-        place(descendants, cursor, Math.min(cellWidth, childrenWidth), depth + 1)
+        const containedWidth = Math.min(cellWidth, childrenWidth)
+        place(descendants, cursor, containedWidth, depth + 1)
       }
       cursor += cellWidth
     }
@@ -253,17 +258,12 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
   const layout = useMemo(() => layoutFlame(rows, focusedKey), [rows, focusedKey])
   const match = query.trim().toLowerCase()
   const focused = focusedKey === null ? null : rows.find((row) => row.key === focusedKey) ?? null
-  const visibleCells = layout.cells.filter((cell) => {
-    const matching = match !== '' && cell.row.path.some((part) => part.toLowerCase().includes(match))
-    return cell.width >= 0.3 || matching || cell.row.key === selectedKey
-  })
-  const hiddenCount = layout.cells.length - visibleCells.length
   return (
     <section className="panel pd-flame-panel">
       <div className="pd-flame-toolbar">
         <div>
           <span className="panel-title">aggregate differential call tree</span>
-          <span className="pd-flame-help faint">width = max baseline/candidate cost · hue = direction · double-click = focus</span>
+          <span className="pd-flame-help faint">merged flamegraph · width = aggregate cost · color = performance change · double-click = focus</span>
         </div>
         <div className="pd-flame-actions">
           <input className="input pd-flame-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="find a span" aria-label="find a span" />
@@ -272,8 +272,8 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
       </div>
       {focused !== null && <div className="pd-focus-path"><span className="faint">focused</span> {focused.path.join(' / ')}</div>}
       <div className="pd-flame-viewport">
-        <div className="pd-flame" style={{ height: `${Math.max(150, (layout.depth + 1) * 34 + 12)}px` }}>
-          {visibleCells.map((cell) => {
+        <div className="pd-flame" style={{ height: `${Math.max(150, (layout.depth + 1) * 20 + 4)}px` }}>
+          {layout.cells.map((cell) => {
             const matching = match !== '' && cell.row.path.some((part) => part.toLowerCase().includes(match))
             const dimmed = match !== '' && !matching
             return <button
@@ -283,7 +283,7 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
               style={{
                 left: `calc(${cell.left}% + 1px)`,
                 width: `max(2px, calc(${cell.width}% - 2px))`,
-                top: `${cell.depth * 34 + 6}px`,
+                top: `${cell.depth * 20 + 2}px`,
                 background: frameBackground(cell.row),
               }}
               onClick={() => onSelect(cell.row.key)}
@@ -297,7 +297,7 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
         </div>
       </div>
       <div className="pd-flame-legend">
-        {hiddenCount > 0 && <span className="pd-elided">{hiddenCount} small frames hidden · focus to reveal</span>}
+        <span className="pd-elided">all frames shown</span>
         <span><i className="improved" /> faster</span>
         <span><i className="neutral" /> unchanged / uncertain</span>
         <span><i className="regressed" /> slower</span>
