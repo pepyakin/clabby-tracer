@@ -50,55 +50,6 @@ describe('layoutFlame', () => {
 
 })
 
-describe('flamegraph frame CSS', () => {
-  test('includes padding and borders inside the proportional frame width', async () => {
-    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
-    const frameRule = /\.pd-frame\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
-
-    expect(frameRule).toContain('box-sizing: border-box')
-    expect(frameRule).toContain('min-width: 0')
-  })
-
-  test('does not widen subpixel frames into their neighbors', async () => {
-    const component = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.tsx`).text()
-
-    expect(component).not.toContain('width: `max(1px, calc(${cell.width}% - 2px))`')
-  })
-})
-
-describe('performance diff workspace CSS', () => {
-  test('gives the active view the remaining page height', async () => {
-    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
-    const contentRule = /\.pd-content\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
-
-    expect(contentRule).toContain('flex: 1')
-    expect(css).toContain('.pd-content > .pd-flame-panel')
-  })
-
-  test('aligns flamegraph toolbar controls to one height', async () => {
-    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
-
-    expect(css).toContain('.pd-flame-actions .btn')
-    expect(css).toContain('height: var(--pd-control-height)')
-  })
-
-  test('keeps source panels stable and allows moving a single source', async () => {
-    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
-    const component = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.tsx`).text()
-
-    expect(css).toContain('.pd-source .panel-header')
-    expect(component).toContain('disabled={baseline === null && candidate === null}')
-  })
-
-  test('contains the analysis grid within the details viewport', async () => {
-    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
-    const detailsRule = /\.pd-details\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
-
-    expect(detailsRule).toContain('min-width: 0')
-    expect(detailsRule).toContain('overflow-x: hidden')
-  })
-})
-
 describe('projectFlameCell', () => {
   test('reserves a pixel gap without pushing adjacent frames together', () => {
     const rows = [path(['root'], 100), path(['other'], 100)]

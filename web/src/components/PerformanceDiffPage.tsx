@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent as ReactWheelEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject, type WheelEvent as ReactWheelEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type {
   PerformanceDiffPageProps,
@@ -542,10 +542,11 @@ function NodeExplorer({ rows, instances, onSelect }: { rows: PerformancePathDiff
 }
 
 function Ecdf({ baseline, candidate }: { baseline: number[]; candidate: number[] }) {
+  const [svgRef, width] = usePlotWidth(440)
   const all = [...baseline, ...candidate]
   const max = Math.max(1, ...all)
   const left = 48
-  const right = 428
+  const right = width - 12
   const top = 12
   const bottom = 156
   const x = (value: number) => left + value / max * (right - left)
@@ -561,7 +562,7 @@ function Ecdf({ baseline, candidate }: { baseline: number[]; candidate: number[]
     return path
   }
   return (
-    <svg className="pd-ecdf" viewBox="0 0 440 185" role="img" aria-label="baseline and candidate empirical cumulative distributions">
+    <svg ref={svgRef} className="pd-ecdf" viewBox={`0 0 ${width} 185`} role="img" aria-label="baseline and candidate empirical cumulative distributions">
       <line className="axis" x1={left} y1={bottom} x2={right} y2={bottom} />
       <line className="axis" x1={left} y1={top} x2={left} y2={bottom} />
       {[0, 0.5, 1].map((fraction) => <g key={`y-${fraction}`}>
@@ -578,6 +579,25 @@ function Ecdf({ baseline, candidate }: { baseline: number[]; candidate: number[]
   )
 }
 
+function usePlotWidth(initialWidth: number): [RefObject<SVGSVGElement | null>, number] {
+  const ref = useRef<SVGSVGElement>(null)
+  const [width, setWidth] = useState(initialWidth)
+
+  useLayoutEffect(() => {
+    const svg = ref.current
+    if (svg === null) return
+
+    const resize = () => setWidth(Math.max(120, Math.round(svg.clientWidth)))
+    resize()
+
+    const observer = new ResizeObserver(resize)
+    observer.observe(svg)
+    return () => observer.disconnect()
+  }, [])
+
+  return [ref, width]
+}
+
 function quantileValue(values: number[], percentile: number): number {
   if (values.length === 0) return 0
   const sorted = [...values].sort((a, b) => a - b)
@@ -589,19 +609,20 @@ function quantileValue(values: number[], percentile: number): number {
 }
 
 function NodeDistributionPlot({ instances }: { instances: PerformanceInstanceDiff[] }) {
+  const [svgRef, width] = usePlotWidth(720)
   const baseline = instances.flatMap((instance) => instance.baselineMeanNs === null ? [] : [{ instance, value: instance.baselineMeanNs }])
   const candidate = instances.flatMap((instance) => instance.candidateMeanNs === null ? [] : [{ instance, value: instance.candidateMeanNs }])
   const values = [...baseline, ...candidate].map((point) => point.value)
   const max = Math.max(1, ...values)
   const left = 78
-  const right = 700
+  const right = width - 12
   const x = (value: number) => left + value / max * (right - left)
   const rows = [
     { label: 'baseline', points: baseline, y: 48, tone: 'baseline' },
     { label: 'candidate', points: candidate, y: 108, tone: 'candidate' },
   ] as const
 
-  return <svg className="pd-node-distribution" viewBox="0 0 720 145" role="img" aria-label="per-node mean duration distributions">
+  return <svg ref={svgRef} className="pd-node-distribution" viewBox={`0 0 ${width} 145`} role="img" aria-label="per-node mean duration distributions">
     {[0, 0.5, 1].map((fraction) => <g key={fraction}>
       <line className="grid" x1={x(max * fraction)} y1="18" x2={x(max * fraction)} y2="123" />
       <text x={x(max * fraction)} y="140" textAnchor={fraction === 0 ? 'start' : fraction === 1 ? 'end' : 'middle'}>{formatNs(max * fraction)}</text>
