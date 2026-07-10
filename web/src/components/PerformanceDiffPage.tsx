@@ -697,20 +697,22 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
           <MetricCard label="absolute change" value={`${row.absoluteChangeNs > 0 ? '+' : '−'}${formatNs(Math.abs(row.absoluteChangeNs))}`} note={`${percent(row.relativeChange)} relative`} tone={row.absoluteChangeNs > 0 ? 'slower' : 'faster'} />
           <MetricCard label="confidence" value={interval(row)} note={`p ${pValue(row.rawP)} · adjusted ${pValue(row.adjustedP)} · Cliff δ ${row.effectSize?.toFixed(2) ?? '—'}`} />
         </div>
-        <nav className="pd-call-path" aria-label="call path">
-          <span className="micro-label">call path</span>
-          <div>{ancestors.map((ancestor) => <span key={ancestor.key}>
-            <button type="button" onClick={() => onSelect(ancestor.key)}>{ancestor.path.at(-1)}</button><i>/</i>
-          </span>)}<strong>{row.path.at(-1)}</strong></div>
-        </nav>
-        <section className="pd-callees">
-          <div className="pd-section-heading"><span className="panel-title">direct callees</span><span className="faint">ranked by aggregate cost</span></div>
-          {children.length === 0 ? <div className="faint pd-leaf">leaf span</div> : <div className="pd-callee-list">{children.slice(0, 12).map((child) => <button type="button" key={child.key} onClick={() => onSelect(child.key)}>
-            <span className="pd-callee-name" title={child.path.join(' / ')}>{child.path.at(-1)}</span>
-            <CostBars row={child} max={childMax} />
-            <span className="mono-num">{formatNs(child.baseline.meanNs)} → {formatNs(child.candidate.meanNs)}</span>
-            <strong className={`mono-num pd-direction ${child.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(child.relativeChange)}</strong>
-          </button>)}</div>}
+        <section className="pd-call-stack">
+          <nav className="pd-call-path" aria-label="call stack">
+            <span className="micro-label">call stack</span>
+            <div>{ancestors.map((ancestor) => <span key={ancestor.key}>
+              <button type="button" onClick={() => onSelect(ancestor.key)}>{ancestor.path.at(-1)}</button><i>/</i>
+            </span>)}<strong>{row.path.at(-1)}</strong></div>
+          </nav>
+          <div className="pd-callees">
+            <div className="pd-section-heading"><span className="panel-title">direct callees</span><span className="faint">ranked by aggregate cost</span></div>
+            {children.length === 0 ? <div className="faint pd-leaf">leaf span</div> : <div className="pd-callee-list">{children.slice(0, 12).map((child) => <button type="button" key={child.key} onClick={() => onSelect(child.key)}>
+              <span className="pd-callee-name" title={child.path.join(' / ')}>{child.path.at(-1)}</span>
+              <CostBars row={child} max={childMax} />
+              <span className="mono-num">{formatNs(child.baseline.meanNs)} → {formatNs(child.candidate.meanNs)}</span>
+              <strong className={`mono-num pd-direction ${child.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(child.relativeChange)}</strong>
+            </button>)}</div>}
+          </div>
         </section>
         <div className="pd-analysis-layout">
           <div className="pd-analysis-plots">

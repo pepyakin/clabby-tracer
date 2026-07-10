@@ -367,8 +367,7 @@
 .pd-metric-card strong { font-size: var(--font-size-lg); }
 .pd-metric-card.slower strong { color: var(--perf-regressed); }
 .pd-metric-card.faster strong { color: var(--perf-improved); }
-.pd-call-path,
-.pd-callees {
+.pd-call-stack {
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
@@ -393,6 +392,7 @@
 .pd-call-path button:hover { background: var(--surface-hover); }
 .pd-call-path i { margin: 0 2px; color: var(--text-faint); font-style: normal; }
 .pd-call-path strong { padding: 3px 6px; overflow: hidden; color: var(--accent-text); text-overflow: ellipsis; white-space: nowrap; }
+.pd-callees { margin-top: 8px; padding-top: 8px; border-top: 1px solid var(--border); }
 .pd-section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .pd-callee-list { margin-top: 8px; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 5px; }
 .pd-callee-list button {
