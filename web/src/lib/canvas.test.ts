@@ -26,4 +26,16 @@ describe('splitCanvasRows', () => {
       { startRow: 818, rowCount: 82 },
     ])
   })
+
+  test('reserves the final lane gap without exceeding the backing-store limit', () => {
+    const tiles = splitCanvasRows(409, 20, 2, 16_384, 1)
+
+    expect(tiles).toEqual([
+      { startRow: 0, rowCount: 408 },
+      { startRow: 408, rowCount: 1 },
+    ])
+    expect(tiles.reduce((rows, tile) => rows + tile.rowCount, 0)).toBe(409)
+    const last = tiles[tiles.length - 1]
+    expect(nativeCanvasSize(1200, (last.rowCount + 1) * 20, 2).height).toBeLessThanOrEqual(16_384)
+  })
 })

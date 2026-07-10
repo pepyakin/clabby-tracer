@@ -22,8 +22,13 @@ export function splitCanvasRows(
   rowHeight: number,
   devicePixelRatio: number,
   maxPixels: number,
+  reservedRows: number = 0,
 ): CanvasRowTile[] {
-  const rowsPerTile = Math.max(1, Math.floor(maxPixels / devicePixelRatio / rowHeight))
+  const maxRows = Math.max(1, Math.floor(maxPixels / devicePixelRatio / rowHeight))
+  const rowsPerTile = maxRows - Math.max(0, reservedRows)
+  if (rowsPerTile < 1) {
+    throw new Error('Canvas limit is too small to fit one row and its reserved space')
+  }
   const tiles: CanvasRowTile[] = []
   for (let startRow = 0; startRow < rowCount; startRow += rowsPerTile) {
     tiles.push({ startRow, rowCount: Math.min(rowsPerTile, rowCount - startRow) })

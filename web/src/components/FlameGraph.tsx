@@ -760,7 +760,13 @@ function FlameLane(props: FlameLaneProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null)
   const [nearViewport, setNearViewport] = useState(false)
   const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
-  const tiles = splitCanvasRows(lane.maxDepth + 1, ROW_H, dpr, MAX_CANVAS_PX)
+  const tiles = splitCanvasRows(
+    lane.maxDepth + 1,
+    ROW_H,
+    dpr,
+    MAX_CANVAS_PX,
+    LANE_GAP_ROWS,
+  )
   const height = (lane.maxDepth + 1 + LANE_GAP_ROWS) * ROW_H
 
   useEffect(() => {
