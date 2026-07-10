@@ -25,6 +25,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
+import { fitCanvasBackingStore } from '../lib/canvas'
 import { clamp, formatClock, formatNs } from '../lib/format'
 import {
   instanceColorVar,
@@ -45,7 +46,7 @@ const RULER_H = 26
 const ROW_H = 20
 // A canvas can't grow past the browser's max backing-store dimension (~16384px
 // on Chrome/Safari); exceed it and the 2D context enters a permanent error
-// state (every draw call throws). Cap rendered lanes to a safe height instead.
+// state (every draw call throws).
 const MAX_CANVAS_PX = 16384
 const BAR_H = 16
 const BAR_PAD_Y = (ROW_H - BAR_H) / 2 // vertical inset, centers the bar in its row
@@ -204,26 +205,6 @@ interface Active {
   hi: number
   focused: boolean
   lanes: ActiveLane[]
-  /** Lanes dropped to keep the canvas within MAX_CANVAS_PX (0 = all shown). */
-  dropped: number
-}
-
-/**
- * Keep only the lanes whose stacked rows fit a safe canvas height. A comparison
- * can assemble hundreds of instances; rendering them all would overflow the
- * canvas backing store and crash the context. The remainder is reported so the
- * UI can show a "narrow the filter" notice (hiding visible instances reveals the
- * dropped ones, so every lane stays reachable).
- */
-function capLanes(lanes: ActiveLane[]): { lanes: ActiveLane[]; dropped: number } {
-  const dpr = window.devicePixelRatio || 1
-  const maxRows = Math.max(1, Math.floor((MAX_CANVAS_PX / dpr - RULER_H - 10) / ROW_H))
-  let rows = 0
-  for (let i = 0; i < lanes.length; i++) {
-    rows += lanes[i].maxDepth + 1 + LANE_GAP_ROWS
-    if (rows > maxRows && i > 0) return { lanes: lanes.slice(0, i), dropped: lanes.length - i }
-  }
-  return { lanes, dropped: 0 }
 }
 
 // --------------------------------------------------------- color helpers --
@@ -604,18 +585,16 @@ export default function FlameGraph(props: FlameGraphProps) {
   const active = useMemo<Active>(() => {
     const fullHi = Math.max(1, model.durationNs)
     const buildFull = (): Active => {
-      const capped = capLanes(
-        sortLanes(
-          model.instances
-            .filter((i) => !hiddenInstances.has(i.id))
-            .map((inst) => {
-              const packed = packRows(inst.rootSpans)
-              return { inst, spans: packed.spans, maxDepth: packed.maxRow }
-            }),
-          laneSort,
-        ),
+      const lanes = sortLanes(
+        model.instances
+          .filter((i) => !hiddenInstances.has(i.id))
+          .map((inst) => {
+            const packed = packRows(inst.rootSpans)
+            return { inst, spans: packed.spans, maxDepth: packed.maxRow }
+          }),
+        laneSort,
       )
-      return { lo: 0, hi: fullHi, focused: false, lanes: capped.lanes, dropped: capped.dropped }
+      return { lo: 0, hi: fullHi, focused: false, lanes }
     }
     if (focusName === null) return buildFull()
 
@@ -639,8 +618,7 @@ export default function FlameGraph(props: FlameGraphProps) {
       if (packed.hi > hi) hi = packed.hi
     }
     if (lanes.length === 0 || lo === Infinity) return buildFull()
-    const capped = capLanes(sortLanes(lanes, laneSort))
-    return { lo, hi: Math.max(hi, lo + 1), focused: true, lanes: capped.lanes, dropped: capped.dropped }
+    return { lo, hi: Math.max(hi, lo + 1), focused: true, lanes: sortLanes(lanes, laneSort) }
   }, [model, focusName, hiddenInstances, laneSort])
 
   // Zoom/timeline extent: focus subtree in 'instances' mode, else full domain.
@@ -683,21 +661,19 @@ export default function FlameGraph(props: FlameGraphProps) {
       totalRows = mergedLayout.maxDepth + 1
     }
 
-    // Backing-store size (devicePixelRatio-aware).
+    // Backing-store size (devicePixelRatio-aware). Very tall comparisons keep
+    // their full CSS height and reduce only vertical pixel density.
     const cssW = Math.max(80, scroll.clientWidth)
     const cssH = Math.max(140, RULER_H + totalRows * ROW_H + 10)
     const dpr = window.devicePixelRatio || 1
-    // Lanes are already capped to fit, so the clamp is a no-op in practice — it
-    // only guards a pathological single very-deep lane from poisoning the context.
-    const pw = Math.min(MAX_CANVAS_PX, Math.round(cssW * dpr))
-    const ph = Math.min(MAX_CANVAS_PX, Math.round(cssH * dpr))
-    if (canvas.width !== pw || canvas.height !== ph) {
-      canvas.width = pw
-      canvas.height = ph
-      canvas.style.width = `${cssW}px`
-      canvas.style.height = `${cssH}px`
+    const backing = fitCanvasBackingStore(cssW, cssH, dpr, MAX_CANVAS_PX)
+    if (canvas.width !== backing.width || canvas.height !== backing.height) {
+      canvas.width = backing.width
+      canvas.height = backing.height
     }
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    canvas.style.width = `${cssW}px`
+    canvas.style.height = `${cssH}px`
+    ctx.setTransform(backing.scaleX, 0, 0, backing.scaleY, 0, 0)
 
     if (theme.charW === 0) {
       ctx.font = theme.font
@@ -1445,14 +1421,6 @@ export default function FlameGraph(props: FlameGraphProps) {
           {shownSpans} spans
           <span className="fg-header-dot">·</span>
           {shownInstances} {shownInstances === 1 ? 'instance' : 'instances'}
-          {active.dropped > 0 && (
-            <span
-              className="fg-cap-note level-warn"
-              title="Too many lanes to render at once. Narrow the filter (e.g. pin one height) to compare fewer instances; hiding visible instances reveals the rest."
-            >
-              <span className="fg-header-dot">·</span>+{active.dropped} not shown
-            </span>
-          )}
         </span>
       </div>
       <div className="fg-legend">
