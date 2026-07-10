@@ -22,7 +22,6 @@ import {
   useState,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
 } from 'react'
 import { fitCanvasBackingStore, nativeCanvasSize, splitCanvasRows } from '../lib/canvas'
 import { clamp, formatClock, formatNs } from '../lib/format'
@@ -36,6 +35,7 @@ import {
   type SpanNode,
 } from '../lib/model'
 import { buildAggregateTree } from '../lib/trace'
+import FlameTimeline from './FlameTimeline'
 import Select from './Select'
 import './FlameGraph.css'
 
@@ -1530,61 +1530,6 @@ export default function FlameGraph(props: FlameGraphProps) {
     else resetView()
   }
 
-  // Overview timeline: drag the window body to pan, an edge handle to zoom,
-  // or empty track to rubber-band a new range. Shares viewRef with the
-  // canvas, so wheel-zoom and timeline drags stay in lockstep.
-  const onTimelinePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
-    if (e.button !== 0) return
-    const track = timelineRef.current
-    if (!track) return
-    e.preventDefault()
-    rootRef.current?.focus()
-    const rect = track.getBoundingClientRect()
-    const { lo, hi } = rangeRef.current
-    const rangeSpan = Math.max(1, hi - lo)
-    const tAt = (clientX: number) =>
-      lo + clamp((clientX - rect.left) / Math.max(rect.width, 1), 0, 1) * rangeSpan
-
-    const ds = (e.target as HTMLElement).dataset
-    const mode: 'left' | 'right' | 'pan' | 'select' =
-      ds.tlHandle === 'left'
-        ? 'left'
-        : ds.tlHandle === 'right'
-          ? 'right'
-          : ds.tlWindow === 'true'
-            ? 'pan'
-            : 'select'
-
-    const v = viewRef.current
-    const win0 = v ? clamp(v.t1 - v.t0, 0, rangeSpan) : rangeSpan
-    const a0 = v ? clamp(v.t0, lo, hi - win0) : lo
-    const anchorT = tAt(e.clientX)
-    const downX = e.clientX
-    let moved = false
-
-    const onMove = (ev: PointerEvent) => {
-      if (!moved && mode === 'select' && Math.abs(ev.clientX - downX) < 3) return
-      moved = true
-      const cur = tAt(ev.clientX)
-      if (mode === 'pan') {
-        const shift = cur - anchorT
-        applyView(a0 + shift, a0 + shift + win0)
-      } else if (mode === 'left') {
-        applyView(Math.min(cur, a0 + win0), a0 + win0)
-      } else if (mode === 'right') {
-        applyView(a0, Math.max(cur, a0))
-      } else {
-        applyView(Math.min(anchorT, cur), Math.max(anchorT, cur))
-      }
-    }
-    const onUp = () => {
-      window.removeEventListener('pointermove', onMove)
-      window.removeEventListener('pointerup', onUp)
-    }
-    window.addEventListener('pointermove', onMove)
-    window.addEventListener('pointerup', onUp)
-  }
-
   const handleKeyDown = (e: ReactKeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'Escape') onSelect(null)
   }
@@ -1602,13 +1547,8 @@ export default function FlameGraph(props: FlameGraphProps) {
     if (tipTop > h - 140) tipTop = Math.max(4, tip.y - 140)
   }
 
-  // Overview-timeline window, as a percentage of the active extent.
-  const tlSpan = Math.max(1, rangeHi - rangeLo)
   const winT0 = viewWin ? clamp(viewWin.t0, rangeLo, rangeHi) : rangeLo
   const winT1 = viewWin ? clamp(viewWin.t1, rangeLo, rangeHi) : rangeHi
-  const tlLeft = ((winT0 - rangeLo) / tlSpan) * 100
-  const tlWidth = Math.max(((winT1 - winT0) / tlSpan) * 100, 0.6)
-  const zoomed = viewWin !== null && winT1 - winT0 < tlSpan - 0.5
 
   // The span we're viewing: the focused subtree's name, or the trace's root
   // span name (the one shared by every visible instance's top-level span).
@@ -1750,30 +1690,19 @@ export default function FlameGraph(props: FlameGraphProps) {
         </div>
       )}
 
-      <div className="fg-timeline">
-        {mode === 'instances' && (
-          <span className="fg-timeline-label" style={{ width: GUTTER }}>
-            timeline
-          </span>
-        )}
-        <div
-          ref={timelineRef}
-          className="fg-timeline-track"
-          onPointerDown={onTimelinePointerDown}
-          onDoubleClick={resetView}
-          title="drag to scrub · drag an edge to zoom · drag empty track to select a range · double-click to reset"
-        >
-          <canvas ref={minimapRef} className="fg-timeline-minimap" />
-          <div
-            className={`fg-timeline-window${zoomed ? ' zoomed' : ''}`}
-            data-tl-window="true"
-            style={{ left: `${tlLeft}%`, width: `${tlWidth}%` }}
-          >
-            <span className="fg-timeline-handle left" data-tl-handle="left" />
-            <span className="fg-timeline-handle right" data-tl-handle="right" />
-          </div>
-        </div>
-      </div>
+      <FlameTimeline
+        low={rangeLo}
+        high={rangeHi}
+        viewLow={viewWin?.t0 ?? rangeLo}
+        viewHigh={viewWin?.t1 ?? rangeHi}
+        trackRef={timelineRef}
+        label={mode === 'instances' ? 'timeline' : undefined}
+        labelWidth={GUTTER}
+        onChange={applyView}
+        onReset={resetView}
+      >
+        <canvas ref={minimapRef} className="fg-timeline-minimap" />
+      </FlameTimeline>
 
       <div className="fg-scroll" ref={bindScroll}>
         <div className="fg-canvas-wrap">

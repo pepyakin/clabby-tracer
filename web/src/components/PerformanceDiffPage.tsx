@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type WheelEvent as ReactWheelEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type {
   PerformanceDiffPageProps,
@@ -10,6 +10,7 @@ import type {
 } from '../lib/model'
 import { importTraceExport } from '../lib/export'
 import { formatNs, shortId } from '../lib/format'
+import FlameTimeline from './FlameTimeline'
 import './PerformanceDiffPage.css'
 
 function queryLabel(query: string): string {
@@ -270,7 +271,6 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
   const [view, setView] = useState<FlameView>({ low: 0, high: 100 })
   const flameRef = useRef<HTMLDivElement | null>(null)
   const minimapRef = useRef<HTMLDivElement | null>(null)
-  const dragRef = useRef<{ clientX: number; view: FlameView } | null>(null)
   const layout = useMemo(() => layoutFlame(rows, focusedKey), [rows, focusedKey])
   const match = query.trim().toLowerCase()
   const focused = focusedKey === null ? null : rows.find((row) => row.key === focusedKey) ?? null
@@ -309,21 +309,6 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
     zoomAt(anchor, Math.exp(event.deltaY * 0.0015))
   }
 
-  const startMinimapDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    dragRef.current = { clientX: event.clientX, view }
-    event.currentTarget.setPointerCapture(event.pointerId)
-  }
-
-  const moveMinimapDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const drag = dragRef.current
-    const minimap = minimapRef.current
-    if (drag === null || minimap === null) return
-    const delta = (event.clientX - drag.clientX) / minimap.clientWidth * 100
-    const span = drag.view.high - drag.view.low
-    const low = Math.min(100 - span, Math.max(0, drag.view.low + delta))
-    setView({ low, high: low + span })
-  }
-
   return (
     <section className="panel pd-flame-panel">
       <div className="pd-flame-toolbar">
@@ -338,8 +323,20 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
         </div>
       </div>
       {focused !== null && <div className="pd-focus-path"><span className="faint">focused</span> {focused.path.join(' / ')}</div>}
-      <div className="pd-flame-minimap" ref={minimapRef}>
-        <div className="pd-flame-minimap-bars" aria-hidden="true">
+      <FlameTimeline
+        low={0}
+        high={100}
+        viewLow={view.low}
+        viewHigh={view.high}
+        trackRef={minimapRef}
+        onChange={(low, high) => {
+          const span = Math.min(100, Math.max(2, high - low))
+          const nextLow = Math.min(100 - span, Math.max(0, low))
+          setView({ low: nextLow, high: nextLow + span })
+        }}
+        onReset={() => setView({ low: 0, high: 100 })}
+      >
+        <div className="pd-flame-minimap-bars fg-timeline-minimap" aria-hidden="true">
           {layout.cells.map((cell) => <i key={cell.row.key} style={{
             left: `${cell.left}%`,
             width: `${cell.width}%`,
@@ -347,17 +344,7 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
             background: frameBackground(cell.row),
           }} />)}
         </div>
-        <button
-          type="button"
-          className="pd-flame-window"
-          style={{ left: `${view.low}%`, width: `${view.high - view.low}%` }}
-          aria-label="drag visible flamegraph range"
-          onPointerDown={startMinimapDrag}
-          onPointerMove={moveMinimapDrag}
-          onPointerUp={() => { dragRef.current = null }}
-          onPointerCancel={() => { dragRef.current = null }}
-        />
-      </div>
+      </FlameTimeline>
       <div className="pd-flame-viewport" onWheel={onWheel}>
         <div ref={flameRef} className="pd-flame" style={{ height: `${Math.max(150, (layout.depth + 1) * 20 + 4)}px` }}>
           {projected.map(({ cell, position }) => {
