@@ -14,6 +14,7 @@ import type {
   TraceModel,
 } from './model'
 import { colorIndexForService } from './model'
+import { hydrateTrace, type WireTrace } from './wire'
 
 export interface ExportedEvent {
   name: string
@@ -143,6 +144,14 @@ export function importTraceExport(value: unknown): TraceModel {
   }
   if (raw.version !== undefined && raw.version !== 1) {
     throw new Error(`unsupported export version ${String(raw.version)}`)
+  }
+  // Also accept the JSON-safe body returned directly by /api/v1/compare.
+  if (Array.isArray(raw.instances) && Array.isArray(raw.spans)) {
+    finite(raw.startUnixMs, 'startUnixMs')
+    finite(raw.durationNs, 'durationNs')
+    text(raw.traceId, 'traceId')
+    if (!Array.isArray(raw.warnings)) throw new Error('warnings must be an array')
+    return hydrateTrace(raw as unknown as WireTrace)
   }
   const traceId = text(raw.traceId, 'traceId')
   const startTime = text(raw.startTime, 'startTime')

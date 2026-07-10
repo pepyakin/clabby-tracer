@@ -4,6 +4,131 @@
   flex-direction: column;
   gap: var(--pad);
 }
+.pd-workspace {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--pad);
+}
+.pd-workspace.with-details { grid-template-columns: minmax(0, 1fr) 390px; }
+.pd-content { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: var(--pad); }
+.pd-controls { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.pd-view-tabs,
+.pd-threshold { display: flex; align-items: center; gap: 4px; }
+.pd-warning {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warn) 45%, var(--border));
+  border-radius: var(--radius-sm);
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 8%, transparent);
+}
+.pd-summary {
+  display: grid;
+  grid-template-columns: minmax(160px, 1fr) auto auto auto minmax(210px, auto);
+  gap: 20px;
+  align-items: center;
+  padding: 14px 16px;
+}
+.pd-summary-main,
+.pd-summary-metric,
+.pd-summary-change { display: flex; flex-direction: column; gap: 2px; }
+.pd-summary-main strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-summary-arrow { color: var(--text-faint); }
+.pd-summary-samples { grid-column: 1 / -1; border-top: 1px solid var(--border); padding-top: 8px; }
+.pd-direction.slower { color: var(--perf-regressed); }
+.pd-direction.faster { color: var(--perf-improved); }
+.pd-evidence { white-space: nowrap; font-size: var(--font-size-sm); }
+.pd-evidence.pd-regressed { color: var(--perf-regressed); }
+.pd-evidence.pd-improved { color: var(--perf-improved); }
+.pd-evidence.pd-added,
+.pd-evidence.pd-removed { color: var(--warn); }
+.pd-evidence.pd-within-noise,
+.pd-evidence.pd-inconclusive,
+.pd-evidence.pd-descriptive { color: var(--text-faint); }
+.pd-overview-grid {
+  min-height: 0;
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: var(--pad);
+}
+.pd-tree-panel,
+.pd-table-panel,
+.pd-node-panel { min-height: 0; overflow: hidden; }
+.pd-tree { height: calc(100% - 40px); overflow: auto; padding: 8px; }
+.pd-tree-row {
+  min-width: 110px;
+  height: 27px;
+  margin-bottom: 2px;
+  padding: 0 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--surface-hover);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+  overflow: hidden;
+}
+.pd-tree-row > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-tree-row.pd-regressed { background: color-mix(in srgb, var(--perf-regressed) 25%, var(--surface)); border-color: color-mix(in srgb, var(--perf-regressed) 60%, var(--border)); }
+.pd-tree-row.pd-improved { background: color-mix(in srgb, var(--perf-improved) 25%, var(--surface)); border-color: color-mix(in srgb, var(--perf-improved) 60%, var(--border)); }
+.pd-tree-row.pd-added,
+.pd-tree-row.pd-removed { border-style: dashed; border-color: var(--warn); }
+.pd-ranked { padding: var(--pad); display: flex; flex-direction: column; gap: 18px; overflow: auto; }
+.pd-ranked-group { display: flex; flex-direction: column; gap: 3px; }
+.pd-ranked-group button {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  border: 0;
+  border-radius: 4px;
+  padding: 5px 6px;
+  background: none;
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+.pd-ranked-group button:hover { background: var(--surface-hover); }
+.pd-ranked-group button span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-table-scroll,
+.pd-node-panel { overflow: auto; }
+.pd-table tbody tr { cursor: pointer; }
+.pd-table tbody tr:hover { background: var(--surface-hover); }
+.pd-path { max-width: 440px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-cap { padding: 8px var(--pad); border-top: 1px solid var(--border); }
+.pd-node-grid { display: grid; min-width: max-content; }
+.pd-node-corner,
+.pd-node-head,
+.pd-node-path,
+.pd-node-cell { min-height: 30px; border: 0; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); padding: 6px 8px; font: inherit; }
+.pd-node-corner,
+.pd-node-head { position: sticky; top: 0; z-index: 2; background: var(--surface-raised); color: var(--text-faint); text-transform: uppercase; font-size: var(--font-size-xs); }
+.pd-node-path { position: sticky; left: 0; z-index: 1; background: var(--surface); color: var(--text); text-align: left; cursor: pointer; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-node-cell { background: transparent; color: var(--text); cursor: pointer; text-align: right; }
+.pd-node-cell.missing { color: var(--text-faint); }
+.pd-details { min-height: 0; overflow: hidden; }
+.pd-details .panel-header { justify-content: space-between; }
+.pd-details-body { height: calc(100% - 40px); overflow: auto; padding: var(--pad); }
+.pd-breadcrumb { margin-bottom: 6px; overflow-wrap: anywhere; }
+.pd-ecdf { width: 100%; height: 150px; margin-top: 10px; color: var(--border-strong); }
+.pd-ecdf line { stroke: currentColor; stroke-width: 1; }
+.pd-ecdf path { fill: none; stroke-width: 2; }
+.pd-ecdf path.baseline { stroke: var(--text-muted); }
+.pd-ecdf path.candidate { stroke: var(--accent); }
+.pd-legend { display: flex; gap: 12px; justify-content: center; font-size: var(--font-size-sm); }
+.pd-legend .baseline { color: var(--text-muted); }
+.pd-legend .candidate { color: var(--accent-text); }
+.pd-detail-stats { display: grid; grid-template-columns: 110px 1fr; gap: 5px 12px; margin: 16px 0; }
+.pd-detail-stats dt { color: var(--text-faint); }
+.pd-detail-stats dd { margin: 0; text-align: right; font-variant-numeric: tabular-nums; }
+.pd-instance-table { width: 100%; }
+.pd-analysis-error { color: var(--error); }
 .pd-sources {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -44,4 +169,8 @@
 @media (max-width: 850px) {
   .pd-sources { grid-template-columns: 1fr; }
   .pd-swap { justify-self: center; transform: rotate(90deg); }
+  .pd-workspace.with-details { grid-template-columns: 1fr; overflow: auto; }
+  .pd-overview-grid { grid-template-columns: 1fr; }
+  .pd-summary { grid-template-columns: 1fr auto; }
+  .pd-summary-arrow { display: none; }
 }

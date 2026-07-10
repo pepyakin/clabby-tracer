@@ -214,6 +214,9 @@ export interface PerformancePathDiff {
   baselineErrors: number
   candidateErrors: number
   instances: PerformanceInstanceDiff[]
+  /** Per-operation costs retained for the selected-path distribution view. */
+  baselineValuesNs: number[]
+  candidateValuesNs: number[]
 }
 
 export interface PerformanceDiff {

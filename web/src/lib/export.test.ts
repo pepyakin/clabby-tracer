@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test'
 import { exportTrace, importTraceExport } from './export'
 import { parseTrace } from './trace'
+import { serializeTrace } from './wire'
 
 const TRACE = 'aaaabbbbccccdddd0000111122223333'
 const NS = 1_781_000_000_000_000_000n
@@ -106,6 +107,7 @@ describe('exportTrace', () => {
 
     const { format: _format, version: _version, ...legacy } = exported
     expect(importTraceExport(legacy).spans.size).toBe(3)
+    expect(importTraceExport(JSON.parse(JSON.stringify(serializeTrace(imported)))).spans.size).toBe(3)
   })
 
   test('rejects malformed exports with a useful field path', () => {

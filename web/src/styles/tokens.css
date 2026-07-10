@@ -57,6 +57,9 @@
   --warn: #e0a458;
   --error: #e0635c;
   --error-bg: rgba(224, 99, 92, 0.12);
+  --perf-improved: #4fb6a2;
+  --perf-regressed: #e0635c;
+  --perf-neutral: #737380;
 
   /* Log levels */
   --level-trace: #62626d;
@@ -104,6 +107,9 @@
   --warn: #b97c22;
   --error: #c8423a;
   --error-bg: rgba(200, 66, 58, 0.08);
+  --perf-improved: #1f9077;
+  --perf-regressed: #c8423a;
+  --perf-neutral: #777783;
 
   --level-trace: #9a9aa6;
   --level-debug: #3d7fc2;

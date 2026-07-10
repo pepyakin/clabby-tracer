@@ -667,6 +667,7 @@ export default function App() {
                 <ExportModal
                   model={model}
                   hiddenInstances={hiddenInstances}
+                  compareQuery={route.view === 'compare' ? route.query : undefined}
                   onClose={() => setExportOpen(false)}
                 />
               )}

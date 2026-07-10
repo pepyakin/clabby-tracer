@@ -14,12 +14,14 @@ import './ExportModal.css'
 export interface ExportModalProps {
   model: TraceModel
   hiddenInstances: ReadonlySet<string>
+  compareQuery?: string
   onClose: () => void
 }
 
 export default function ExportModal({
   model,
   hiddenInstances,
+  compareQuery,
   onClose,
 }: ExportModalProps) {
   const [copied, setCopied] = useState(false)
@@ -27,8 +29,12 @@ export default function ExportModal({
   useEffect(() => () => window.clearTimeout(copyTimer.current), [])
 
   const exported = useMemo(
-    () => exportTrace(model, hiddenInstances),
-    [model, hiddenInstances],
+    () => exportTrace(
+      model,
+      hiddenInstances,
+      compareQuery === undefined ? undefined : { kind: 'compare', query: compareQuery },
+    ),
+    [model, hiddenInstances, compareQuery],
   )
   const json = useMemo(() => JSON.stringify(exported, null, 2), [exported])
 

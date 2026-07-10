@@ -321,6 +321,8 @@ export function analyzePerformanceDiff(
       baselineErrors: baselineCosts.reduce((sum, cost) => sum + cost.errors, 0),
       candidateErrors: candidateCosts.reduce((sum, cost) => sum + cost.errors, 0),
       instances,
+      baselineValuesNs: baselineValues,
+      candidateValuesNs: candidateValues,
     })
   }
 
