@@ -89,9 +89,13 @@ describe('analyzePerformanceDiff', () => {
   test('detects a deterministic regression and keeps full paths distinct', () => {
     const diff = analyzePerformanceDiff(model(1), model(2, 12, true), 0.02, { resamples: 200, seed: 7 })
     expect(diff.inferential).toBe(true)
+    expect(diff.comparisonMode).toBe('paired')
     expect(diff.root?.relativeChange).toBe(1)
+    expect(diff.root?.effectSize).toBeGreaterThan(0)
     expect(diff.paths.find((row) => row.path.join('/') === 'round/work')?.evidence).toBe('regressed')
-    expect(diff.paths.find((row) => row.path.join('/') === 'round/extra')?.evidence).toBe('added')
+    const added = diff.paths.find((row) => row.path.join('/') === 'round/extra')
+    expect(added?.evidence).toBe('added')
+    expect(added?.rawP).toBeNull()
   })
 
   test('falls back to descriptive output for sparse comparisons', () => {
@@ -101,12 +105,14 @@ describe('analyzePerformanceDiff', () => {
     expect(diff.warning).toContain('At least 10')
   })
 
-  test('falls back when node sets differ', () => {
+  test('uses unpaired inference when node sets differ', () => {
     const candidate = model(2)
     candidate.instances[1].id = 'node-2'
     const diff = analyzePerformanceDiff(model(1), candidate, 0.02, { resamples: 20 })
-    expect(diff.inferential).toBe(false)
-    expect(diff.warning).toContain('Node sets differ')
+    expect(diff.inferential).toBe(true)
+    expect(diff.comparisonMode).toBe('unpaired')
+    expect(diff.warning).toContain('unpaired')
+    expect(diff.root?.relativeInterval).not.toBeNull()
   })
 
   test('adjusts p-values monotonically in original order', () => {

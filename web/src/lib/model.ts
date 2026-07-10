@@ -204,6 +204,8 @@ export interface PerformancePathDiff {
   absoluteChangeNs: number
   relativeChange: number | null
   relativeInterval: PerformanceInterval | null
+  /** Cliff's delta: positive means candidate observations tend to be slower. */
+  effectSize: number | null
   rawP: number | null
   adjustedP: number | null
   evidence: PerformanceEvidence
@@ -227,6 +229,7 @@ export interface PerformanceDiff {
   baselineInstances: string[]
   candidateInstances: string[]
   inferential: boolean
+  comparisonMode: 'paired' | 'unpaired' | 'descriptive'
   warning: string | null
   threshold: number
 }

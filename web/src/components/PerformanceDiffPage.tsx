@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type {
   PerformanceDiffPageProps,
   PerformanceDiff,
+  PerformanceInstanceDiff,
   PerformancePathDiff,
   PerformanceSource,
   TraceModel,
@@ -198,10 +199,10 @@ function RootSummary({ row, diff }: { row: PerformancePathDiff; diff: Performanc
         <strong className={`mono-num pd-direction ${row.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>
           {row.absoluteChangeNs > 0 ? '+' : '−'}{formatNs(Math.abs(row.absoluteChangeNs))} · {percent(row.relativeChange)}
         </strong>
-        <span className="faint mono-num">95% {interval(row)} · p adj {pValue(row.adjustedP)}</span>
+        <span className="faint mono-num">95% {interval(row)} · p adj {pValue(row.adjustedP)} · Cliff δ {row.effectSize?.toFixed(2) ?? '—'}</span>
       </div>
       <div className="pd-summary-samples faint mono-num">
-        {diff.baselineOperations} → {diff.candidateOperations} operations · {diff.baselineInstances.length} nodes
+        {diff.baselineOperations} → {diff.candidateOperations} operations · {diff.baselineInstances.length} → {diff.candidateInstances.length} nodes · {diff.comparisonMode}
       </div>
     </section>
   )
@@ -323,6 +324,7 @@ function RankedChanges({ rows, onSelect }: { rows: PerformancePathDiff[]; onSele
         <button type="button" key={row.key} onClick={() => onSelect(row.key)}>
           <span title={row.path.join(' / ')}>{row.path.at(-1)}</span>
           <span className="mono-num">{row.absoluteChangeNs > 0 ? '+' : '−'}{formatNs(Math.abs(row.absoluteChangeNs))}</span>
+          <Evidence row={row} />
         </button>
       ))}
     </div>
@@ -359,6 +361,7 @@ function PathExplorer({ rows, selectedKey, onSelect }: { rows: PerformancePathDi
         <span className="pd-sort">
           {(['impact', 'cost', 'name'] as const).map((value) => <button type="button" className={`chip ${sort === value ? 'active' : ''}`} key={value} onClick={() => setSort(value)}>{value}</button>)}
         </span>
+        <span className="pd-cost-key faint"><i className="baseline" /> baseline <i className="candidate" /> candidate</span>
       </div>
       <div className="pd-path-cards">
         {filtered.slice(0, 2000).map((row) => <button type="button" className={`pd-path-card${selectedKey === row.key ? ' selected' : ''}`} key={row.key} onClick={() => onSelect(row.key)}>
@@ -376,18 +379,56 @@ function PathExplorer({ rows, selectedKey, onSelect }: { rows: PerformancePathDi
   )
 }
 
+function RankedNodes({ title, nodes, max, tone }: { title: string; nodes: PerformanceInstanceDiff[]; max: number; tone: 'baseline' | 'candidate' }) {
+  return <div className="pd-ranked-nodes">
+    <div className="pd-ranked-nodes-head"><span className="panel-title">{title}</span><span className="faint">{nodes.length} nodes · slowest first</span></div>
+    <div className="pd-ranked-node-list">{nodes.map((node, index) => {
+      const value = tone === 'baseline' ? node.baselineMeanNs ?? 0 : node.candidateMeanNs ?? 0
+      return <div className="pd-ranked-node" key={node.instanceId}>
+        <span className="pd-node-rank mono-num">{index + 1}</span>
+        <span className="pd-node-id" title={node.instanceId}>{shortId(node.instanceId)}</span>
+        <span className="pd-node-bar"><i className={tone} style={{ width: `${value / max * 100}%` }} /></span>
+        <strong className="mono-num">{formatNs(value)}</strong>
+      </div>
+    })}</div>
+  </div>
+}
+
 function NodeExplorer({ rows, instances, onSelect }: { rows: PerformancePathDiff[]; instances: string[]; onSelect: (key: string) => void }) {
   const [query, setQuery] = useState('')
   const root = rows.find((row) => row.depth === 0) ?? null
   const match = query.trim().toLowerCase()
   const visible = instances.filter((id) => match === '' || id.toLowerCase().includes(match))
+  const baselineNodes = (root?.instances ?? [])
+    .filter((node) => node.baselineMeanNs !== null && (match === '' || node.instanceId.toLowerCase().includes(match)))
+    .sort((a, b) => (b.baselineMeanNs ?? 0) - (a.baselineMeanNs ?? 0))
+  const candidateNodes = (root?.instances ?? [])
+    .filter((node) => node.candidateMeanNs !== null && (match === '' || node.instanceId.toLowerCase().includes(match)))
+    .sort((a, b) => (b.candidateMeanNs ?? 0) - (a.candidateMeanNs ?? 0))
+  const sharedNodes = (root?.instances ?? []).filter((node) => node.baselineMeanNs !== null && node.candidateMeanNs !== null)
+  const unpaired = sharedNodes.length === 0 && baselineNodes.length > 0 && candidateNodes.length > 0
+  const maxNode = Math.max(
+    1,
+    ...baselineNodes.map((node) => node.baselineMeanNs ?? 0),
+    ...candidateNodes.map((node) => node.candidateMeanNs ?? 0),
+  )
   return (
     <section className="panel pd-node-explorer">
       <div className="pd-explorer-toolbar">
-        <div><span className="panel-title">node explorer</span><span className="faint"> {visible.length} nodes</span></div>
+        <div><span className="panel-title">node explorer</span><span className="faint"> {unpaired ? 'independent deployment populations' : `${visible.length} matched nodes`}</span></div>
         <input className="input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="find a node" aria-label="find a node" />
       </div>
-      <div className="pd-node-cards">
+      {unpaired ? <>
+        {root !== null && <div className="pd-node-population-chart">
+          <div><span className="panel-title">root latency distribution</span><span className="faint"> nodes are ranked independently because deployment identities differ</span></div>
+          <Ecdf baseline={root.baselineValuesNs} candidate={root.candidateValuesNs} />
+          <div className="pd-legend"><span className="baseline">baseline</span><span className="candidate">candidate</span></div>
+        </div>}
+        <div className="pd-node-populations">
+          <RankedNodes title="baseline deployment" nodes={baselineNodes} max={maxNode} tone="baseline" />
+          <RankedNodes title="candidate deployment" nodes={candidateNodes} max={maxNode} tone="candidate" />
+        </div>
+      </> : <div className="pd-node-cards">
         {visible.map((id) => {
           const rootStats = root?.instances.find((instance) => instance.instanceId === id)
           const changes = rows.flatMap((row) => {
@@ -415,7 +456,7 @@ function NodeExplorer({ rows, instances, onSelect }: { rows: PerformancePathDiff
             </div>
           </article>
         })}
-      </div>
+      </div>}
     </section>
   )
 }
@@ -423,15 +464,34 @@ function NodeExplorer({ rows, instances, onSelect }: { rows: PerformancePathDiff
 function Ecdf({ baseline, candidate }: { baseline: number[]; candidate: number[] }) {
   const all = [...baseline, ...candidate]
   const max = Math.max(1, ...all)
-  const line = (values: number[]) => [...values].sort((a, b) => a - b).map((value, index) => {
-    const x = 8 + value / max * 284
-    const y = 112 - ((index + 1) / values.length) * 100
-    return `${index === 0 ? 'M' : 'L'}${x.toFixed(1)},${y.toFixed(1)}`
-  }).join(' ')
+  const left = 48
+  const right = 428
+  const top = 12
+  const bottom = 156
+  const x = (value: number) => left + value / max * (right - left)
+  const y = (fraction: number) => bottom - fraction * (bottom - top)
+  const line = (values: number[]) => {
+    const ordered = [...values].sort((a, b) => a - b)
+    let path = `M${left},${bottom}`
+    ordered.forEach((value, index) => {
+      const nextX = x(value).toFixed(1)
+      const nextY = y((index + 1) / ordered.length).toFixed(1)
+      path += ` H${nextX} V${nextY}`
+    })
+    return path
+  }
   return (
-    <svg className="pd-ecdf" viewBox="0 0 300 120" role="img" aria-label="baseline and candidate empirical cumulative distributions">
-      <line x1="8" y1="112" x2="292" y2="112" />
-      <line x1="8" y1="12" x2="8" y2="112" />
+    <svg className="pd-ecdf" viewBox="0 0 440 185" role="img" aria-label="baseline and candidate empirical cumulative distributions">
+      <line className="axis" x1={left} y1={bottom} x2={right} y2={bottom} />
+      <line className="axis" x1={left} y1={top} x2={left} y2={bottom} />
+      {[0, 0.5, 1].map((fraction) => <g key={`y-${fraction}`}>
+        <line className="grid" x1={left} y1={y(fraction)} x2={right} y2={y(fraction)} />
+        <text x={left - 8} y={y(fraction) + 3} textAnchor="end">{fraction * 100}%</text>
+      </g>)}
+      {[0, 0.5, 1].map((fraction) => <g key={`x-${fraction}`}>
+        <line className="tick" x1={x(max * fraction)} y1={bottom} x2={x(max * fraction)} y2={bottom + 4} />
+        <text x={x(max * fraction)} y={bottom + 17} textAnchor={fraction === 0 ? 'start' : fraction === 1 ? 'end' : 'middle'}>{formatNs(max * fraction)}</text>
+      </g>)}
       <path className="baseline" d={line(baseline)} />
       <path className="candidate" d={line(candidate)} />
     </svg>
@@ -456,6 +516,15 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
   const nodeChanges = row.instances
     .filter((instance) => instance.baselineMeanNs !== null || instance.candidateMeanNs !== null)
     .sort((a, b) => Math.abs(b.relativeChange ?? 0) - Math.abs(a.relativeChange ?? 0))
+  const pairedNodes = nodeChanges.filter((instance) => instance.baselineMeanNs !== null && instance.candidateMeanNs !== null)
+  const slowestBaseline = [...nodeChanges]
+    .filter((instance) => instance.baselineMeanNs !== null)
+    .sort((a, b) => (b.baselineMeanNs ?? 0) - (a.baselineMeanNs ?? 0))
+    .slice(0, 5)
+  const slowestCandidate = [...nodeChanges]
+    .filter((instance) => instance.candidateMeanNs !== null)
+    .sort((a, b) => (b.candidateMeanNs ?? 0) - (a.candidateMeanNs ?? 0))
+    .slice(0, 5)
   return (
     <section className="panel pd-details">
       <div className="pd-details-header">
@@ -472,7 +541,7 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
           <MetricCard label="baseline mean" value={formatNs(row.baseline.meanNs)} note={`${row.baseline.samples} operations · p95 ${formatNs(row.baseline.p95Ns)}`} />
           <MetricCard label="candidate mean" value={formatNs(row.candidate.meanNs)} note={`${row.candidate.samples} operations · p95 ${formatNs(row.candidate.p95Ns)}`} />
           <MetricCard label="absolute change" value={`${row.absoluteChangeNs > 0 ? '+' : '−'}${formatNs(Math.abs(row.absoluteChangeNs))}`} note={`${percent(row.relativeChange)} relative`} tone={row.absoluteChangeNs > 0 ? 'slower' : 'faster'} />
-          <MetricCard label="confidence" value={interval(row)} note={`p ${pValue(row.rawP)} · adjusted ${pValue(row.adjustedP)}`} />
+          <MetricCard label="confidence" value={interval(row)} note={`p ${pValue(row.rawP)} · adjusted ${pValue(row.adjustedP)} · Cliff δ ${row.effectSize?.toFixed(2) ?? '—'}`} />
         </div>
         <div className="pd-sandwich">
           <div className="pd-context-stack">
@@ -503,12 +572,15 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
             </dl>
           </div>
           <div className="pd-investigation-card pd-node-impact">
-            <div><span className="panel-title">node impact</span><span className="faint"> {nodeChanges.length} nodes</span></div>
-            <div className="pd-node-impact-list">{nodeChanges.slice(0, 20).map((instance) => <div key={instance.instanceId}>
+            <div><span className="panel-title">{pairedNodes.length > 0 ? 'node impact' : 'slowest nodes'}</span><span className="faint"> {nodeChanges.length} observations</span></div>
+            {pairedNodes.length > 0 ? <div className="pd-node-impact-list">{pairedNodes.slice(0, 20).map((instance) => <div key={instance.instanceId}>
               <span title={instance.instanceId}>{shortId(instance.instanceId)}</span>
-              <span className="faint mono-num">{instance.baselineMeanNs === null ? '—' : formatNs(instance.baselineMeanNs)} → {instance.candidateMeanNs === null ? '—' : formatNs(instance.candidateMeanNs)}</span>
+              <span className="faint mono-num">{formatNs(instance.baselineMeanNs ?? 0)} → {formatNs(instance.candidateMeanNs ?? 0)}</span>
               <strong className={`pd-direction mono-num ${(instance.relativeChange ?? 0) > 0 ? 'slower' : 'faster'}`}>{percent(instance.relativeChange)}</strong>
-            </div>)}</div>
+            </div>)}</div> : <div className="pd-unpaired-impact">
+              <div><span className="micro-label">baseline</span>{slowestBaseline.map((instance) => <span key={instance.instanceId}><span title={instance.instanceId}>{shortId(instance.instanceId)}</span><strong>{formatNs(instance.baselineMeanNs ?? 0)}</strong></span>)}</div>
+              <div><span className="micro-label">candidate</span>{slowestCandidate.map((instance) => <span key={instance.instanceId}><span title={instance.instanceId}>{shortId(instance.instanceId)}</span><strong>{formatNs(instance.candidateMeanNs ?? 0)}</strong></span>)}</div>
+            </div>}
           </div>
         </div>
       </div>
@@ -652,7 +724,7 @@ export default function PerformanceDiffPage({
             <div className="pd-controls">
               <span className="pd-view-tabs">
                 {(['overview', 'paths', 'nodes'] as const).map((item) => (
-                  <button type="button" key={item} className={`chip ${view === item ? 'active' : ''}`} onClick={() => route({ view: item })}>{item}</button>
+                  <button type="button" key={item} className={`chip ${view === item ? 'active' : ''}`} onClick={() => route({ view: item })}>{item === 'paths' ? 'hot paths' : item}</button>
                 ))}
               </span>
               <span className="pd-threshold">
@@ -662,7 +734,7 @@ export default function PerformanceDiffPage({
                 ))}
               </span>
             </div>
-            {analysis.result.warning !== null && <div className="pd-warning">{analysis.result.warning}</div>}
+            {analysis.result.warning !== null && <div className={analysis.result.comparisonMode === 'unpaired' ? 'pd-notice' : 'pd-warning'}>{analysis.result.warning}</div>}
             {view === 'overview' && (
               <>
                 {analysis.result.root !== null && <RootSummary row={analysis.result.root} diff={analysis.result} />}

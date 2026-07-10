@@ -112,6 +112,19 @@ function estimate(values: readonly number[]): PerformanceEstimate {
   }
 }
 
+function cliffsDelta(baseline: readonly number[], candidate: readonly number[]): number | null {
+  if (baseline.length === 0 || candidate.length === 0) return null
+  let greater = 0
+  let lower = 0
+  for (const before of baseline) {
+    for (const after of candidate) {
+      if (after > before) greater++
+      else if (after < before) lower++
+    }
+  }
+  return (greater - lower) / (baseline.length * candidate.length)
+}
+
 function valuesFor(operations: readonly Operation[], key: string): number[] {
   return operations.map((operation) => operation.costs.get(key)?.durationNs ?? 0)
 }
@@ -256,6 +269,86 @@ function resamplePaths(
   }
 }
 
+function instanceMeans(
+  side: Samples,
+  pathIndexes: ReadonlyMap<string, number>,
+  pathCount: number,
+): Float64Array[] {
+  return [...side.byInstance.values()].map((operations) => {
+    const rows = denseRows(operations, pathIndexes, pathCount)
+    const average = new Float64Array(pathCount)
+    for (const row of rows) addRow(average, row, 1 / rows.length)
+    return average
+  })
+}
+
+/** Unpaired inference for runs whose node identities do not overlap. */
+function resampleUnpairedPaths(
+  baseline: Samples,
+  candidate: Samples,
+  keys: readonly string[],
+  count: number,
+  seed: number,
+): ResamplingResult {
+  const pathCount = keys.length
+  const pathIndexes = new Map(keys.map((key, index) => [key, index]))
+  const baselineMeans = instanceMeans(baseline, pathIndexes, pathCount)
+  const candidateMeans = instanceMeans(candidate, pathIndexes, pathCount)
+  const observed = new Float64Array(pathCount)
+  for (let path = 0; path < pathCount; path++) {
+    const before = mean(baselineMeans.map((row) => row[path]))
+    const after = mean(candidateMeans.map((row) => row[path]))
+    observed[path] = Math.abs(after - before)
+  }
+  const distributions = Array.from({ length: pathCount }, () => new Float64Array(count))
+  const distributionLengths = new Uint32Array(pathCount)
+  const extreme = new Uint32Array(pathCount)
+  const bootstrapRandom = random(seed)
+  const permutationRandom = random(seed ^ 0xa5a5a5a5)
+
+  for (let sample = 0; sample < count; sample++) {
+    const before = new Float64Array(pathCount)
+    const after = new Float64Array(pathCount)
+    for (let index = 0; index < baselineMeans.length; index++) {
+      addRow(before, baselineMeans[Math.floor(bootstrapRandom() * baselineMeans.length)], 1 / baselineMeans.length)
+    }
+    for (let index = 0; index < candidateMeans.length; index++) {
+      addRow(after, candidateMeans[Math.floor(bootstrapRandom() * candidateMeans.length)], 1 / candidateMeans.length)
+    }
+    for (let path = 0; path < pathCount; path++) {
+      if (before[path] <= 0) continue
+      distributions[path][distributionLengths[path]++] = after[path] / before[path] - 1
+    }
+
+    const pool = [...baselineMeans, ...candidateMeans]
+    for (let index = pool.length - 1; index > 0; index--) {
+      const swap = Math.floor(permutationRandom() * (index + 1))
+      ;[pool[index], pool[swap]] = [pool[swap], pool[index]]
+    }
+    const permutedBefore = new Float64Array(pathCount)
+    const permutedAfter = new Float64Array(pathCount)
+    for (let index = 0; index < baselineMeans.length; index++) {
+      addRow(permutedBefore, pool[index], 1 / baselineMeans.length)
+    }
+    for (let index = baselineMeans.length; index < pool.length; index++) {
+      addRow(permutedAfter, pool[index], 1 / candidateMeans.length)
+    }
+    for (let path = 0; path < pathCount; path++) {
+      if (Math.abs(permutedAfter[path] - permutedBefore[path]) >= observed[path]) extreme[path]++
+    }
+  }
+
+  return {
+    intervals: distributions.map((distribution, path) => {
+      const length = distributionLengths[path]
+      if (length === 0) return null
+      const values = Array.from(distribution.subarray(0, length))
+      return { low: quantile(values, 0.025), high: quantile(values, 0.975) }
+    }),
+    pValues: Array.from(extreme, (value) => (value + 1) / (count + 1)),
+  }
+}
+
 /** Benjamini-Hochberg adjusted p-values in the same order as the input. */
 export function adjustPValues(values: readonly (number | null)[]): (number | null)[] {
   const ranked = values
@@ -298,15 +391,20 @@ export function analyzePerformanceDiff(
     baselineInstances.length > 0 &&
     baselineInstances.length === candidateInstances.length &&
     baselineInstances.every((id, index) => id === candidateInstances[index])
-  const inferential =
-    sameInstances &&
+  const enoughSamples =
     baseline.operations.length >= MIN_SAMPLES &&
-    candidate.operations.length >= MIN_SAMPLES
-  const warning = inferential
-    ? null
-    : !sameInstances
-      ? 'Node sets differ, so results are descriptive only.'
-      : `At least ${MIN_SAMPLES} operations per side are required for confidence intervals and adjusted p-values.`
+    candidate.operations.length >= MIN_SAMPLES &&
+    baselineInstances.length >= 2 &&
+    candidateInstances.length >= 2
+  const comparisonMode: PerformanceDiff['comparisonMode'] = !enoughSamples
+    ? 'descriptive'
+    : sameInstances ? 'paired' : 'unpaired'
+  const inferential = comparisonMode !== 'descriptive'
+  const warning = comparisonMode === 'unpaired'
+    ? `Node identities do not overlap; using unpaired analysis across ${baselineInstances.length} baseline and ${candidateInstances.length} candidate nodes.`
+    : comparisonMode === 'descriptive'
+      ? `At least ${MIN_SAMPLES} operations and two nodes per side are required for confidence intervals and adjusted p-values.`
+      : null
   const keys = [...new Set([...baseline.paths.keys(), ...candidate.paths.keys()])]
   const resamples = options.resamples ?? DEFAULT_RESAMPLES
   const baseSeed = options.seed ?? 0x6d2b79f5
@@ -356,6 +454,7 @@ export function analyzePerformanceDiff(
       absoluteChangeNs: candidateMean - baselineMean,
       relativeChange,
       relativeInterval: null,
+      effectSize: cliffsDelta(baselineValues, candidateValues),
       rawP: null,
       adjustedP: null,
       evidence: 'descriptive',
@@ -372,17 +471,13 @@ export function analyzePerformanceDiff(
   }
 
   if (inferential) {
-    const resampling = resamplePaths(
-      baseline,
-      candidate,
-      keys,
-      baselineInstances,
-      resamples,
-      baseSeed,
-    )
+    const resampling = comparisonMode === 'paired'
+      ? resamplePaths(baseline, candidate, keys, baselineInstances, resamples, baseSeed)
+      : resampleUnpairedPaths(baseline, candidate, keys, resamples, baseSeed)
     rows.forEach((row, index) => {
-      row.relativeInterval = row.baseline.meanNs > 0 ? resampling.intervals[index] : null
-      row.rawP = resampling.pValues[index]
+      const structural = row.baselineCoverage === 0 || row.candidateCoverage === 0
+      row.relativeInterval = structural ? null : resampling.intervals[index]
+      row.rawP = structural ? null : resampling.pValues[index]
     })
   }
 
@@ -403,6 +498,7 @@ export function analyzePerformanceDiff(
     baselineInstances,
     candidateInstances,
     inferential,
+    comparisonMode,
     warning,
     threshold,
   }

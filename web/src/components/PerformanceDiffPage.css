@@ -77,6 +77,13 @@
   color: var(--warn);
   background: color-mix(in srgb, var(--warn) 8%, transparent);
 }
+.pd-notice {
+  padding: 8px 11px;
+  border-left: 3px solid var(--accent);
+  border-radius: 2px;
+  color: var(--text-muted);
+  background: var(--accent-bg);
+}
 .pd-direction.slower { color: var(--perf-regressed); }
 .pd-direction.faster { color: var(--perf-improved); }
 .pd-evidence { white-space: nowrap; font-size: var(--font-size-sm); }
@@ -114,9 +121,9 @@
 .pd-ranked-group {
   min-width: 0;
   display: grid;
-  grid-template-columns: repeat(5, minmax(90px, 1fr));
-  gap: 4px;
-  padding: 8px;
+  grid-template-columns: repeat(3, minmax(120px, 1fr));
+  gap: 7px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface);
@@ -131,7 +138,7 @@
   gap: 2px;
   border: 1px solid var(--border);
   border-radius: 4px;
-  padding: 5px 6px;
+  padding: 7px 8px;
   background: var(--surface-raised);
   color: var(--text);
   font: inherit;
@@ -139,6 +146,7 @@
 }
 .pd-ranked-group button:hover { border-color: var(--border-strong); background: var(--surface-hover); }
 .pd-ranked-group button span { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-ranked-group button .pd-evidence { margin-top: 2px; }
 
 /* --------------------------------------------------------- flame graph -- */
 
@@ -215,20 +223,24 @@
 .pd-explorer-toolbar > div:first-child { margin-right: auto; }
 .pd-explorer-toolbar .input { width: 240px; }
 .pd-sort { display: flex; gap: 4px; }
+.pd-cost-key { display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; }
+.pd-cost-key i { width: 16px; height: 4px; border-radius: 2px; }
+.pd-cost-key i.baseline { background: var(--text-faint); }
+.pd-cost-key i.candidate { background: var(--accent); }
 .pd-path-cards {
-  padding: 8px;
+  padding: 10px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 6px;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 10px;
   max-height: min(650px, calc(100vh - 260px));
   overflow: auto;
 }
 .pd-path-card {
   min-width: 0;
-  padding: 9px 10px;
+  padding: 12px;
   display: flex;
   flex-direction: column;
-  gap: 5px;
+  gap: 7px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
@@ -254,20 +266,49 @@
 /* -------------------------------------------------------- node explorer -- */
 
 .pd-node-cards {
-  padding: 8px;
+  padding: 10px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-  gap: 7px;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 10px;
   max-height: min(680px, calc(100vh - 260px));
   overflow: auto;
 }
 .pd-node-card {
   min-width: 0;
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
 }
+.pd-node-population-chart {
+  padding: 12px 14px 8px;
+  border-bottom: 1px solid var(--border);
+}
+.pd-node-populations {
+  min-height: 0;
+  padding: 12px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 18px;
+}
+.pd-ranked-nodes { min-width: 0; }
+.pd-ranked-nodes-head { margin-bottom: 8px; display: flex; justify-content: space-between; gap: 12px; }
+.pd-ranked-node-list { max-height: 460px; overflow: auto; padding-right: 4px; }
+.pd-ranked-node {
+  min-height: 34px;
+  display: grid;
+  grid-template-columns: 28px 86px minmax(80px, 1fr) 74px;
+  align-items: center;
+  gap: 9px;
+  border-bottom: 1px solid var(--border);
+}
+.pd-node-rank { color: var(--text-faint); text-align: right; }
+.pd-node-id { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-node-bar { height: 7px; border-radius: 3px; background: var(--inset); overflow: hidden; }
+.pd-node-bar i { display: block; height: 100%; min-width: 1px; border-radius: inherit; }
+.pd-node-bar i.baseline { background: var(--text-faint); }
+.pd-node-bar i.candidate { background: var(--accent); }
+.pd-ranked-node strong { text-align: right; font-weight: 500; }
 .pd-node-card-head,
 .pd-node-root,
 .pd-node-changes button { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
@@ -304,7 +345,7 @@
 .pd-metrics { display: grid; grid-template-columns: repeat(4, minmax(150px, 1fr)); gap: 7px; }
 .pd-metric-card,
 .pd-investigation-card {
-  padding: 10px;
+  padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--surface-raised);
@@ -348,10 +389,13 @@
 .pd-investigation-grid { margin-top: 8px; display: grid; grid-template-columns: 1.25fr 0.8fr 1fr; gap: 7px; }
 .pd-investigation-card { min-width: 0; }
 .pd-ecdf { width: 100%; height: 180px; margin-top: 6px; color: var(--border-strong); }
-.pd-ecdf line { stroke: currentColor; stroke-width: 1; }
+.pd-ecdf line.axis,
+.pd-ecdf line.tick { stroke: var(--border-strong); stroke-width: 1; }
+.pd-ecdf line.grid { stroke: var(--border); stroke-width: 1; }
 .pd-ecdf path { fill: none; stroke-width: 2; }
 .pd-ecdf path.baseline { stroke: var(--text-muted); }
 .pd-ecdf path.candidate { stroke: var(--accent); }
+.pd-ecdf text { fill: var(--text-faint); font: 10px var(--font-mono); }
 .pd-legend { display: flex; gap: 12px; justify-content: center; font-size: var(--font-size-sm); }
 .pd-legend .baseline { color: var(--text-muted); }
 .pd-legend .candidate { color: var(--accent-text); }
@@ -368,11 +412,24 @@
   border-bottom: 1px solid var(--border);
 }
 .pd-node-impact-list > div > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-unpaired-impact { margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pd-unpaired-impact > div { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.pd-unpaired-impact > div > span:not(.micro-label) {
+  min-width: 0;
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.pd-unpaired-impact > div > span > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-unpaired-impact strong { font-weight: 500; font-variant-numeric: tabular-nums; }
 
 @media (max-width: 1000px) {
   .pd-ranked { grid-template-columns: 1fr; }
   .pd-metrics { grid-template-columns: 1fr 1fr; }
   .pd-investigation-grid { grid-template-columns: 1fr; }
+  .pd-node-populations { grid-template-columns: 1fr; }
 }
 @media (max-width: 850px) {
   .pd-sources { grid-template-columns: 1fr; }
