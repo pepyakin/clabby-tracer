@@ -145,8 +145,8 @@
 .pd-flame-actions { display: flex; gap: 6px; }
 .pd-flame-search { width: 210px; }
 .pd-focus-path { padding: 5px 10px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pd-flame-viewport { overflow: auto; background: var(--flame-bg); }
-.pd-flame { position: relative; min-width: 800px; }
+.pd-flame-viewport { min-width: 0; overflow: hidden; background: var(--flame-bg); }
+.pd-flame { position: relative; width: 100%; min-width: 0; }
 .pd-frame {
   position: absolute;
   height: 16px;
