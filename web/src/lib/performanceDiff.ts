@@ -3,6 +3,9 @@ import type {
   PerformanceEstimate,
   PerformanceEvidence,
   PerformanceInstanceDiff,
+  PerformanceInterval,
+  PerformanceMetric,
+  PerformanceMetricDiff,
   PerformancePathDiff,
   SpanNode,
   TraceModel,
@@ -115,9 +118,87 @@ function estimate(values: readonly number[]): PerformanceEstimate {
     meanNs: mean(values),
     medianNs: med,
     p95Ns: quantile(values, 0.95),
+    p99Ns: quantile(values, 0.99),
     madNs: quantile(values.map((value) => Math.abs(value - med)), 0.5),
     samples: values.length,
     outliers: outlierCount(values),
+  }
+}
+
+const METRIC_QUANTILES: Record<Exclude<PerformanceMetric, 'mean'>, number> = {
+  median: 0.5,
+  p95: 0.95,
+  p99: 0.99,
+}
+
+function metricValue(estimate: PerformanceEstimate, metric: PerformanceMetric): number {
+  if (metric === 'mean') return estimate.meanNs
+  if (metric === 'median') return estimate.medianNs
+  if (metric === 'p95') return estimate.p95Ns
+  return estimate.p99Ns
+}
+
+function metricReliability(metric: PerformanceMetric, baselineSamples: number, candidateSamples: number): boolean {
+  if (metric === 'mean' || metric === 'median') return Math.min(baselineSamples, candidateSamples) >= MIN_SAMPLES
+  const tailProbability = 1 - METRIC_QUANTILES[metric]
+  return Math.min(baselineSamples, candidateSamples) * tailProbability >= 2
+}
+
+function quantileConfidence(values: readonly number[], percentile: number): PerformanceInterval | null {
+  if (values.length === 0) return null
+  const ordered = sorted(values)
+  const center = ordered.length * percentile
+  const spread = 1.96 * Math.sqrt(ordered.length * percentile * (1 - percentile))
+  const lowIndex = Math.max(0, Math.floor(center - spread) - 1)
+  const highIndex = Math.min(ordered.length - 1, Math.ceil(center + spread) - 1)
+  return { low: ordered[lowIndex], high: ordered[highIndex] }
+}
+
+function quantileChangeInterval(
+  baseline: readonly number[],
+  candidate: readonly number[],
+  percentile: number,
+): PerformanceInterval | null {
+  const before = quantileConfidence(baseline, percentile)
+  const after = quantileConfidence(candidate, percentile)
+  if (before === null || after === null || before.low <= 0 || before.high <= 0) return null
+  return {
+    low: after.low / before.high - 1,
+    high: after.high / before.low - 1,
+  }
+}
+
+function intervalEvidence(interval: PerformanceInterval | null, threshold: number): PerformanceEvidence {
+  if (interval === null) return 'descriptive'
+  if (interval.low >= -threshold && interval.high <= threshold) return 'within-noise'
+  if (interval.low > threshold) return 'regressed'
+  if (interval.high < -threshold) return 'improved'
+  return 'inconclusive'
+}
+
+function observedMetric(
+  baseline: PerformanceEstimate,
+  candidate: PerformanceEstimate,
+  metric: PerformanceMetric,
+  baselineValues: readonly number[],
+  candidateValues: readonly number[],
+  threshold: number,
+): PerformanceMetricDiff {
+  const baselineNs = metricValue(baseline, metric)
+  const candidateNs = metricValue(candidate, metric)
+  const reliable = metricReliability(metric, baseline.samples, candidate.samples)
+  const relativeInterval = metric === 'mean' || !reliable
+    ? null
+    : quantileChangeInterval(baselineValues, candidateValues, METRIC_QUANTILES[metric])
+  return {
+    baselineNs,
+    candidateNs,
+    absoluteChangeNs: candidateNs - baselineNs,
+    relativeChange: baselineNs > 0 ? candidateNs / baselineNs - 1 : null,
+    relativeInterval,
+    adjustedP: null,
+    evidence: intervalEvidence(relativeInterval, threshold),
+    reliable,
   }
 }
 
@@ -454,12 +535,24 @@ export function analyzePerformanceDiff(
       const cost = op.costs.get(key)
       return cost === undefined ? [] : [cost]
     })
+    const baselineEstimate = { ...estimate(baselineValues), meanNs: baselineMean }
+    const candidateEstimate = { ...estimate(candidateValues), meanNs: candidateMean }
+    const metrics = Object.fromEntries(
+      (['mean', 'median', 'p95', 'p99'] as const).map((metric) => [
+        metric,
+        observedMetric(baselineEstimate, candidateEstimate, metric, baselineValues, candidateValues, threshold),
+      ]),
+    ) as Record<PerformanceMetric, PerformanceMetricDiff>
+    if (baselineCoverage === 0 || candidateCoverage === 0) {
+      const structuralEvidence = baselineCoverage === 0 ? 'added' : 'removed'
+      for (const metric of Object.values(metrics)) metric.evidence = structuralEvidence
+    }
     rows.push({
       key,
       path,
       depth: Math.max(0, path.length - 1),
-      baseline: { ...estimate(baselineValues), meanNs: baselineMean },
-      candidate: { ...estimate(candidateValues), meanNs: candidateMean },
+      baseline: baselineEstimate,
+      candidate: candidateEstimate,
       absoluteChangeNs: candidateMean - baselineMean,
       relativeChange,
       relativeInterval: null,
@@ -467,6 +560,7 @@ export function analyzePerformanceDiff(
       rawP: null,
       adjustedP: null,
       evidence: 'descriptive',
+      metrics,
       baselineCalls: baselineCosts.reduce((sum, cost) => sum + cost.calls, 0),
       candidateCalls: candidateCosts.reduce((sum, cost) => sum + cost.calls, 0),
       baselineCoverage: baselineCoverage / Math.max(1, baseline.operations.length),
@@ -494,6 +588,12 @@ export function analyzePerformanceDiff(
   rows.forEach((row, index) => {
     row.adjustedP = adjusted[index]
     row.evidence = evidenceFor(row, threshold, inferential)
+    row.metrics.mean = {
+      ...row.metrics.mean,
+      relativeInterval: row.relativeInterval,
+      adjustedP: row.adjustedP,
+      evidence: row.evidence,
+    }
   })
   rows.sort((a, b) => Math.abs(b.absoluteChangeNs) - Math.abs(a.absoluteChangeNs))
   const root = rows

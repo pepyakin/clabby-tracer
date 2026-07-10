@@ -135,6 +135,26 @@ describe('analyzePerformanceDiff', () => {
     expect(root?.baseline.meanNs).toBeGreaterThanOrEqual(70_000_000)
   })
 
+  test('separates an overall improvement from a tail regression', () => {
+    const baseline = model(1, 100)
+    const candidate = model(1, 100)
+    for (const instance of baseline.instances) {
+      for (const root of instance.rootSpans) root.durationNs = 100_000
+    }
+    for (const instance of candidate.instances) {
+      instance.rootSpans.forEach((root, index) => {
+        root.durationNs = index < 3 ? 500_000 : 50_000
+      })
+    }
+
+    const root = analyzePerformanceDiff(baseline, candidate, 0.02, { resamples: 20 }).root!
+
+    expect(root.metrics.mean.relativeChange).toBeLessThan(0)
+    expect(root.metrics.p95.relativeChange).toBeGreaterThan(0)
+    expect(root.metrics.p95.reliable).toBe(true)
+    expect(root.metrics.p99.reliable).toBe(false)
+  })
+
   test('adjusts p-values monotonically in original order', () => {
     expect(adjustPValues([0.01, 0.04, 0.03, null])).toEqual([0.03, 0.04, 0.04, null])
   })

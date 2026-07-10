@@ -176,9 +176,23 @@ export interface PerformanceEstimate {
   meanNs: number
   medianNs: number
   p95Ns: number
+  p99Ns: number
   madNs: number
   samples: number
   outliers: number
+}
+
+export type PerformanceMetric = 'mean' | 'median' | 'p95' | 'p99'
+
+export interface PerformanceMetricDiff {
+  baselineNs: number
+  candidateNs: number
+  absoluteChangeNs: number
+  relativeChange: number | null
+  relativeInterval: PerformanceInterval | null
+  adjustedP: number | null
+  evidence: PerformanceEvidence
+  reliable: boolean
 }
 
 export interface PerformanceInterval {
@@ -209,6 +223,7 @@ export interface PerformancePathDiff {
   rawP: number | null
   adjustedP: number | null
   evidence: PerformanceEvidence
+  metrics: Record<PerformanceMetric, PerformanceMetricDiff>
   baselineCalls: number
   candidateCalls: number
   baselineCoverage: number
