@@ -120,15 +120,6 @@ function equalInstanceMean(byInstance: Map<string, Operation[]>, key: string): n
   return mean([...byInstance.values()].map((operations) => mean(valuesFor(operations, key))))
 }
 
-function hash(value: string): number {
-  let out = 0x811c9dc5
-  for (let i = 0; i < value.length; i++) {
-    out ^= value.charCodeAt(i)
-    out = Math.imul(out, 0x01000193)
-  }
-  return out >>> 0
-}
-
 function random(seed: number): () => number {
   let state = seed || 0x9e3779b9
   return () => {
@@ -139,69 +130,130 @@ function random(seed: number): () => number {
   }
 }
 
-function resampledMean(values: readonly number[], rand: () => number): number {
-  let total = 0
-  for (let i = 0; i < values.length; i++) total += values[Math.floor(rand() * values.length)]
-  return values.length === 0 ? 0 : total / values.length
+interface DenseInstance {
+  baseline: Float64Array[]
+  candidate: Float64Array[]
 }
 
-function bootstrapRelative(
-  baseline: Samples,
-  candidate: Samples,
-  key: string,
-  instanceIds: readonly string[],
-  count: number,
-  seed: number,
-): { low: number; high: number } | null {
-  const rand = random(seed)
-  const changes: number[] = []
-  for (let n = 0; n < count; n++) {
-    let baselineTotal = 0
-    let candidateTotal = 0
-    for (let i = 0; i < instanceIds.length; i++) {
-      const id = instanceIds[Math.floor(rand() * instanceIds.length)]
-      baselineTotal += resampledMean(valuesFor(baseline.byInstance.get(id) ?? [], key), rand)
-      candidateTotal += resampledMean(valuesFor(candidate.byInstance.get(id) ?? [], key), rand)
+interface ResamplingResult {
+  intervals: Array<{ low: number; high: number } | null>
+  pValues: number[]
+}
+
+function denseRows(
+  operations: readonly Operation[],
+  pathIndexes: ReadonlyMap<string, number>,
+  pathCount: number,
+): Float64Array[] {
+  return operations.map((operation) => {
+    const row = new Float64Array(pathCount)
+    for (const [key, cost] of operation.costs) {
+      const index = pathIndexes.get(key)
+      if (index !== undefined) row[index] = cost.durationNs
     }
-    const baselineMean = baselineTotal / instanceIds.length
-    if (baselineMean <= 0) continue
-    changes.push(candidateTotal / instanceIds.length / baselineMean - 1)
-  }
-  if (changes.length === 0) return null
-  return { low: quantile(changes, 0.025), high: quantile(changes, 0.975) }
+    return row
+  })
 }
 
-function permutationP(
+function addRow(target: Float64Array, row: Float64Array, weight: number): void {
+  for (let path = 0; path < target.length; path++) target[path] += row[path] * weight
+}
+
+/**
+ * Generate each bootstrap/permutation schedule once and apply it to every path.
+ * The old path-at-a-time implementation repeated identical allocation and
+ * shuffle work for every path, making wide traces scale quadratically in
+ * practice.
+ */
+function resamplePaths(
   baseline: Samples,
   candidate: Samples,
-  key: string,
+  keys: readonly string[],
   instanceIds: readonly string[],
   count: number,
   seed: number,
-): number {
-  const observed = Math.abs(
-    equalInstanceMean(candidate.byInstance, key) - equalInstanceMean(baseline.byInstance, key),
-  )
-  const rand = random(seed)
-  let extreme = 0
-  for (let n = 0; n < count; n++) {
-    let leftTotal = 0
-    let rightTotal = 0
-    for (const id of instanceIds) {
-      const left = valuesFor(baseline.byInstance.get(id) ?? [], key)
-      const right = valuesFor(candidate.byInstance.get(id) ?? [], key)
-      const pool = [...left, ...right]
-      for (let i = pool.length - 1; i > 0; i--) {
-        const j = Math.floor(rand() * (i + 1))
-        ;[pool[i], pool[j]] = [pool[j], pool[i]]
+): ResamplingResult {
+  const pathCount = keys.length
+  const pathIndexes = new Map(keys.map((key, index) => [key, index]))
+  const instances: DenseInstance[] = instanceIds.map((id) => ({
+    baseline: denseRows(baseline.byInstance.get(id) ?? [], pathIndexes, pathCount),
+    candidate: denseRows(candidate.byInstance.get(id) ?? [], pathIndexes, pathCount),
+  }))
+  const observed = new Float64Array(pathCount)
+  for (let path = 0; path < pathCount; path++) {
+    observed[path] = Math.abs(
+      equalInstanceMean(candidate.byInstance, keys[path]) -
+      equalInstanceMean(baseline.byInstance, keys[path]),
+    )
+  }
+
+  const distributions = Array.from({ length: pathCount }, () => new Float64Array(count))
+  const distributionLengths = new Uint32Array(pathCount)
+  const extreme = new Uint32Array(pathCount)
+  const bootstrapRandom = random(seed)
+  const permutationRandom = random(seed ^ 0xa5a5a5a5)
+  const instanceWeight = 1 / instances.length
+
+  for (let sample = 0; sample < count; sample++) {
+    const baselineTotal = new Float64Array(pathCount)
+    const candidateTotal = new Float64Array(pathCount)
+    for (let slot = 0; slot < instances.length; slot++) {
+      const instance = instances[Math.floor(bootstrapRandom() * instances.length)]
+      const baselineWeight = instanceWeight / instance.baseline.length
+      const candidateWeight = instanceWeight / instance.candidate.length
+      for (let operation = 0; operation < instance.baseline.length; operation++) {
+        addRow(
+          baselineTotal,
+          instance.baseline[Math.floor(bootstrapRandom() * instance.baseline.length)],
+          baselineWeight,
+        )
       }
-      leftTotal += mean(pool.slice(0, left.length))
-      rightTotal += mean(pool.slice(left.length))
+      for (let operation = 0; operation < instance.candidate.length; operation++) {
+        addRow(
+          candidateTotal,
+          instance.candidate[Math.floor(bootstrapRandom() * instance.candidate.length)],
+          candidateWeight,
+        )
+      }
     }
-    const delta = Math.abs((rightTotal - leftTotal) / instanceIds.length)
-    if (delta >= observed) extreme++
+    for (let path = 0; path < pathCount; path++) {
+      if (baselineTotal[path] <= 0) continue
+      distributions[path][distributionLengths[path]++] = candidateTotal[path] / baselineTotal[path] - 1
+    }
+
+    const permutedBaseline = new Float64Array(pathCount)
+    const permutedCandidate = new Float64Array(pathCount)
+    for (const instance of instances) {
+      const baselineCount = instance.baseline.length
+      const candidateCount = instance.candidate.length
+      const pool = [...instance.baseline, ...instance.candidate]
+      for (let index = pool.length - 1; index > 0; index--) {
+        const swap = Math.floor(permutationRandom() * (index + 1))
+        ;[pool[index], pool[swap]] = [pool[swap], pool[index]]
+      }
+      const baselineWeight = instanceWeight / baselineCount
+      const candidateWeight = instanceWeight / candidateCount
+      for (let operation = 0; operation < baselineCount; operation++) {
+        addRow(permutedBaseline, pool[operation], baselineWeight)
+      }
+      for (let operation = baselineCount; operation < pool.length; operation++) {
+        addRow(permutedCandidate, pool[operation], candidateWeight)
+      }
+    }
+    for (let path = 0; path < pathCount; path++) {
+      if (Math.abs(permutedCandidate[path] - permutedBaseline[path]) >= observed[path]) extreme[path]++
+    }
   }
-  return (extreme + 1) / (count + 1)
+
+  return {
+    intervals: distributions.map((distribution, path) => {
+      const length = distributionLengths[path]
+      if (length === 0) return null
+      const values = Array.from(distribution.subarray(0, length))
+      return { low: quantile(values, 0.025), high: quantile(values, 0.975) }
+    }),
+    pValues: Array.from(extreme, (value) => (value + 1) / (count + 1)),
+  }
 }
 
 /** Benjamini-Hochberg adjusted p-values in the same order as the input. */
@@ -255,7 +307,7 @@ export function analyzePerformanceDiff(
     : !sameInstances
       ? 'Node sets differ, so results are descriptive only.'
       : `At least ${MIN_SAMPLES} operations per side are required for confidence intervals and adjusted p-values.`
-  const keys = new Set([...baseline.paths.keys(), ...candidate.paths.keys()])
+  const keys = [...new Set([...baseline.paths.keys(), ...candidate.paths.keys()])]
   const resamples = options.resamples ?? DEFAULT_RESAMPLES
   const baseSeed = options.seed ?? 0x6d2b79f5
   const rows: PerformancePathDiff[] = []
@@ -269,13 +321,6 @@ export function analyzePerformanceDiff(
     const baselineCoverage = baseline.operations.filter((op) => op.costs.has(key)).length
     const candidateCoverage = candidate.operations.filter((op) => op.costs.has(key)).length
     const relativeChange = baselineMean > 0 ? candidateMean / baselineMean - 1 : null
-    const pathSeed = baseSeed ^ hash(key)
-    const relativeInterval = inferential && baselineMean > 0
-      ? bootstrapRelative(baseline, candidate, key, baselineInstances, resamples, pathSeed)
-      : null
-    const rawP = inferential
-      ? permutationP(baseline, candidate, key, baselineInstances, resamples, pathSeed ^ 0xa5a5a5a5)
-      : null
     const instances: PerformanceInstanceDiff[] = [...new Set([...baselineInstances, ...candidateInstances])]
       .sort()
       .map((instanceId) => {
@@ -310,8 +355,8 @@ export function analyzePerformanceDiff(
       candidate: { ...estimate(candidateValues), meanNs: candidateMean },
       absoluteChangeNs: candidateMean - baselineMean,
       relativeChange,
-      relativeInterval,
-      rawP,
+      relativeInterval: null,
+      rawP: null,
       adjustedP: null,
       evidence: 'descriptive',
       baselineCalls: baselineCosts.reduce((sum, cost) => sum + cost.calls, 0),
@@ -323,6 +368,21 @@ export function analyzePerformanceDiff(
       instances,
       baselineValuesNs: baselineValues,
       candidateValuesNs: candidateValues,
+    })
+  }
+
+  if (inferential) {
+    const resampling = resamplePaths(
+      baseline,
+      candidate,
+      keys,
+      baselineInstances,
+      resamples,
+      baseSeed,
+    )
+    rows.forEach((row, index) => {
+      row.relativeInterval = row.baseline.meanNs > 0 ? resampling.intervals[index] : null
+      row.rawP = resampling.pValues[index]
     })
   }
 

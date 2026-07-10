@@ -53,6 +53,38 @@ function model(scale: number, operations = 12, extra = false): TraceModel {
   return { traceId: String(scale), startUnixMs: 0, durationNs: 1, instances, spans, events: [], warnings: [] }
 }
 
+function wideModel(scale: number): TraceModel {
+  const instances: Instance[] = []
+  const spans = new Map<string, SpanNode>()
+  for (let node = 0; node < 4; node++) {
+    const instanceId = `node-${node}`
+    const rootSpans: SpanNode[] = []
+    for (let operation = 0; operation < 13; operation++) {
+      const rootId = `${instanceId}-${operation}`
+      const children = Array.from({ length: 150 }, (_, path) => {
+        const child = span(`${rootId}-${path}`, instanceId, `phase-${path}`, (path + operation + 1) * scale)
+        child.parentSpanId = rootId
+        child.depth = 1
+        spans.set(child.spanId, child)
+        return child
+      })
+      const root = span(rootId, instanceId, 'round', 20_000 * scale, children)
+      spans.set(root.spanId, root)
+      rootSpans.push(root)
+    }
+    instances.push({
+      id: instanceId,
+      serviceName: instanceId,
+      instanceTag: null,
+      colorIndex: 0,
+      spanCount: rootSpans.length * 151,
+      rootSpans,
+      maxDepth: 1,
+    })
+  }
+  return { traceId: String(scale), startUnixMs: 0, durationNs: 1, instances, spans, events: [], warnings: [] }
+}
+
 describe('analyzePerformanceDiff', () => {
   test('detects a deterministic regression and keeps full paths distinct', () => {
     const diff = analyzePerformanceDiff(model(1), model(2, 12, true), 0.02, { resamples: 200, seed: 7 })
@@ -79,5 +111,16 @@ describe('analyzePerformanceDiff', () => {
 
   test('adjusts p-values monotonically in original order', () => {
     expect(adjustPValues([0.01, 0.04, 0.03, null])).toEqual([0.03, 0.04, 0.04, null])
+  })
+
+  test('reuses resampling work across a realistic wide trace', () => {
+    const started = performance.now()
+    const diff = analyzePerformanceDiff(wideModel(1), wideModel(1.1), 0.02, {
+      resamples: 300,
+      seed: 9,
+    })
+    const elapsedMs = performance.now() - started
+    expect(diff.paths).toHaveLength(151)
+    expect(elapsedMs).toBeLessThan(150)
   })
 })
