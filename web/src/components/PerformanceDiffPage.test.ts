@@ -89,6 +89,14 @@ describe('performance diff workspace CSS', () => {
     expect(css).toContain('.pd-source .panel-header')
     expect(component).toContain('disabled={baseline === null && candidate === null}')
   })
+
+  test('contains the analysis grid within the details viewport', async () => {
+    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
+    const detailsRule = /\.pd-details\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+
+    expect(detailsRule).toContain('min-width: 0')
+    expect(detailsRule).toContain('overflow-x: hidden')
+  })
 })
 
 describe('projectFlameCell', () => {
