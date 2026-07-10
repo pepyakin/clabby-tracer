@@ -176,8 +176,28 @@ function usePerformanceAnalysis(
 }
 
 function Evidence({ row }: { row: PerformancePathDiff }) {
-  const arrow = row.evidence === 'regressed' ? '↑' : row.evidence === 'improved' ? '↓' : ''
-  return <span className={`pd-evidence pd-${row.evidence}`}>{arrow} {row.evidence.replace('-', ' ')}</span>
+  if (row.evidence !== 'inconclusive') {
+    const arrow = row.evidence === 'regressed' ? '↑' : row.evidence === 'improved' ? '↓' : ''
+    return <span className={`pd-evidence pd-${row.evidence}`}>{arrow} {row.evidence.replace('-', ' ')}</span>
+  }
+
+  const direction = (row.relativeChange ?? 0) <= 0 ? 'faster' : 'slower'
+  const arrow = direction === 'faster' ? '↓' : '↑'
+  const intervalCrossesZero = row.relativeInterval !== null
+    && row.relativeInterval.low <= 0
+    && row.relativeInterval.high >= 0
+  const adjustedPIsHigh = row.adjustedP !== null && row.adjustedP >= 0.05
+
+  let reason = 'confidence interval overlaps the noise threshold'
+  if (intervalCrossesZero) reason = 'confidence interval crosses zero'
+  else if (adjustedPIsHigh) reason = `adjusted p-value is ${pValue(row.adjustedP)}`
+
+  return <span
+    className="pd-evidence pd-inconclusive"
+    title={`Observed ${direction}, but the result is not statistically resolved because the ${reason}.`}
+  >
+    {arrow} {direction} trend · {intervalCrossesZero ? 'CI crosses zero' : adjustedPIsHigh ? `adjusted p ${pValue(row.adjustedP)}` : 'overlaps noise'}
+  </span>
 }
 
 function ComparisonSummary({ row, diff }: { row: PerformancePathDiff; diff: PerformanceDiff }) {
