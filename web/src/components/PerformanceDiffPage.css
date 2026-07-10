@@ -47,6 +47,7 @@
 }
 .pd-source-setup-copy strong { font-size: var(--font-size-lg); }
 .pd-source { min-width: 0; }
+.pd-source .panel-header { height: 45px; }
 .pd-source-kind { margin-left: 4px; }
 .pd-source-clear { margin-left: auto; }
 .pd-source-current,

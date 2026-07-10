@@ -81,6 +81,14 @@ describe('performance diff workspace CSS', () => {
     expect(css).toContain('.pd-flame-actions .btn')
     expect(css).toContain('height: var(--pd-control-height)')
   })
+
+  test('keeps source panels stable and allows moving a single source', async () => {
+    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
+    const component = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.tsx`).text()
+
+    expect(css).toContain('.pd-source .panel-header')
+    expect(component).toContain('disabled={baseline === null && candidate === null}')
+  })
 })
 
 describe('projectFlameCell', () => {

@@ -741,22 +741,14 @@ export default function PerformanceDiffPage({
         <button
           type="button"
           className="btn btn-ghost btn-sm pd-swap"
-          disabled={baselineModel === null || candidateModel === null}
+          disabled={baseline === null && candidate === null}
           onClick={() => {
-            if (baselineQuery !== null && candidateQuery !== null) {
-              route({ baselineQuery: candidateQuery, candidateQuery: baselineQuery })
-            } else if (baseline?.kind === 'export' && candidate?.kind === 'export') {
-              onCaptureBaseline(candidate)
-              onCaptureCandidate(baseline)
-            } else if (baselineQuery !== null && candidate?.kind === 'export') {
-              onCaptureBaseline(candidate)
-              onCaptureCandidate(null)
-              route({ baselineQuery: null, candidateQuery: baselineQuery })
-            } else if (baseline?.kind === 'export' && candidateQuery !== null) {
-              onCaptureBaseline(null)
-              onCaptureCandidate(baseline)
-              route({ baselineQuery: candidateQuery, candidateQuery: null })
-            }
+            onCaptureBaseline(candidate?.kind === 'export' ? candidate : null)
+            onCaptureCandidate(baseline?.kind === 'export' ? baseline : null)
+            route({
+              baselineQuery: candidate?.kind === 'query' ? candidate.query : null,
+              candidateQuery: baseline?.kind === 'query' ? baseline.query : null,
+            })
           }}
           title="swap baseline and candidate"
         >
