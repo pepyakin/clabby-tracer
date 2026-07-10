@@ -146,12 +146,12 @@
 .pd-flame-search { width: 210px; }
 .pd-focus-path { padding: 5px 10px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pd-flame-viewport { min-width: 0; overflow: hidden; background: var(--flame-bg); }
-.pd-flame { position: relative; width: 100%; min-width: 0; }
+.pd-flame { position: relative; width: calc(100% - 8px); min-width: 0; margin-inline: 4px; }
 .pd-frame {
   position: absolute;
   box-sizing: border-box;
   height: 16px;
-  min-width: 1px;
+  min-width: 0;
   padding: 0 8px;
   display: flex;
   align-items: center;

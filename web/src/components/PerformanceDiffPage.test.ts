@@ -56,5 +56,6 @@ describe('flamegraph frame CSS', () => {
     const frameRule = /\.pd-frame\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
 
     expect(frameRule).toContain('box-sizing: border-box')
+    expect(frameRule).toContain('min-width: 0')
   })
 })
