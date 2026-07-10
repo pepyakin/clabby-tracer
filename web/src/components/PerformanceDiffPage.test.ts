@@ -14,7 +14,7 @@ function path(name: string[], meanNs: number): PerformancePathDiff {
 }
 
 describe('layoutFlame', () => {
-  test('uses one absolute time scale for every frame', () => {
+  test('fills each parent while preserving sibling cost proportions', () => {
     const layout = layoutFlame([
       path(['root'], 100),
       path(['root', 'large'], 60),
@@ -25,10 +25,10 @@ describe('layoutFlame', () => {
     const cells = new Map(layout.cells.map((cell) => [cell.row.path.at(-1), cell]))
 
     expect(cells.get('root')?.width).toBe(100)
-    expect(cells.get('large')?.width).toBe(60)
-    expect(cells.get('small')?.width).toBe(20)
-    expect(cells.get('nested')?.width).toBe(30)
-    expect(cells.get('small')?.left).toBe(60)
+    expect(cells.get('large')?.width).toBe(75)
+    expect(cells.get('small')?.width).toBe(25)
+    expect(cells.get('nested')?.width).toBe(75)
+    expect(cells.get('small')?.left).toBe(75)
   })
 
   test('contains concurrent children within their parent', () => {

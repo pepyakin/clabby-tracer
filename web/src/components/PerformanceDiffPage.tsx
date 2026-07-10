@@ -232,10 +232,7 @@ export function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | nu
       cells.push({ row, left: cursor, width: cellWidth, depth })
       const descendants = children.get(row.key)
       if (descendants !== undefined) {
-        const childScale = cellWidth / weight(row)
-        const childrenWidth = descendants.reduce((sum, child) => sum + weight(child) * childScale, 0)
-        const containedWidth = Math.min(cellWidth, childrenWidth)
-        place(descendants, cursor, containedWidth, depth + 1)
+        place(descendants, cursor, cellWidth, depth + 1)
       }
       cursor += cellWidth
     }
@@ -263,7 +260,7 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
       <div className="pd-flame-toolbar">
         <div>
           <span className="panel-title">aggregate differential call tree</span>
-          <span className="pd-flame-help faint">merged flamegraph · width = aggregate cost · color = performance change · double-click = focus</span>
+          <span className="pd-flame-help faint">width = share of sibling aggregate cost · color = performance change · double-click = focus</span>
         </div>
         <div className="pd-flame-actions">
           <input className="input pd-flame-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="find a span" aria-label="find a span" />
