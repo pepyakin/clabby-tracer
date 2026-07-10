@@ -81,14 +81,18 @@
   flex-direction: column;
   gap: var(--pd-space-2);
 }
-.pd-workspace { overflow: auto; }
 .pd-workspace {
+  overflow: hidden;
   overscroll-behavior: contain;
-  scrollbar-gutter: stable;
-  padding-bottom: 1px;
 }
-.pd-content { flex: none; }
+.pd-content { flex: 1; overflow: hidden; }
+.pd-content > .pd-flame-panel,
+.pd-content > .pd-explorer,
+.pd-content > .pd-node-explorer { min-height: 0; flex: 1; }
 .pd-controls { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--pd-space-3); }
+.pd-controls,
+.pd-warning,
+.pd-notice { flex: none; }
 .pd-view-tabs,
 .pd-threshold { display: flex; align-items: center; gap: 4px; }
 .pd-warning {
@@ -130,7 +134,7 @@
 
 /* --------------------------------------------------------- flame graph -- */
 
-.pd-flame-panel { min-height: 0; overflow: hidden; }
+.pd-flame-panel { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .pd-flame-toolbar {
   min-height: 48px;
   padding: var(--pd-space) var(--pd-space-2);
@@ -152,8 +156,8 @@
   min-width: 0;
   background: var(--surface-hover);
 }
-.pd-flame-viewport { min-width: 0; overflow: hidden; background: var(--flame-bg); }
-.pd-flame { position: relative; width: calc(100% - 8px); min-width: 0; margin-inline: 4px; }
+.pd-flame-viewport { min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--flame-bg); }
+.pd-flame { position: relative; width: calc(100% - 8px); height: 100%; min-width: 0; margin-inline: 4px; }
 .pd-frame {
   position: absolute;
   box-sizing: border-box;
@@ -200,7 +204,7 @@
 /* -------------------------------------------------------- path explorer -- */
 
 .pd-explorer,
-.pd-node-explorer { min-height: 0; overflow: hidden; }
+.pd-node-explorer { min-height: 0; display: flex; flex-direction: column; overflow: hidden; }
 .pd-explorer-toolbar {
   min-height: 48px;
   padding: 7px 10px;
@@ -217,11 +221,12 @@
 .pd-cost-key i.baseline { background: var(--text-faint); }
 .pd-cost-key i.candidate { background: var(--accent); }
 .pd-path-cards {
+  min-height: 0;
+  flex: 1;
   padding: 10px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 10px;
-  max-height: min(650px, calc(100vh - 260px));
   overflow: auto;
 }
 .pd-path-card {
@@ -255,11 +260,12 @@
 /* -------------------------------------------------------- node explorer -- */
 
 .pd-node-cards {
+  min-height: 0;
+  flex: 1;
   padding: 10px;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
   gap: 10px;
-  max-height: min(680px, calc(100vh - 260px));
   overflow: auto;
 }
 .pd-node-card {
@@ -275,14 +281,16 @@
 }
 .pd-node-populations {
   min-height: 0;
+  flex: 1;
   padding: 12px;
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 18px;
+  overflow: hidden;
 }
-.pd-ranked-nodes { min-width: 0; }
+.pd-ranked-nodes { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
 .pd-ranked-nodes-head { margin-bottom: 8px; display: flex; justify-content: space-between; gap: 12px; }
-.pd-ranked-node-list { max-height: 460px; overflow: auto; padding-right: 4px; }
+.pd-ranked-node-list { min-height: 0; flex: 1; overflow: auto; padding-right: 4px; }
 .pd-ranked-node {
   min-height: 34px;
   display: grid;
@@ -320,6 +328,7 @@
 /* ------------------------------------------------------------- details -- */
 
 .pd-selection {
+  flex: none;
   min-height: 64px;
   padding: var(--pd-space) var(--pd-space-2);
   display: grid;

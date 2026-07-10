@@ -66,6 +66,16 @@ describe('flamegraph frame CSS', () => {
   })
 })
 
+describe('performance diff workspace CSS', () => {
+  test('gives the active view the remaining page height', async () => {
+    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
+    const contentRule = /\.pd-content\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+
+    expect(contentRule).toContain('flex: 1')
+    expect(css).toContain('.pd-content > .pd-flame-panel')
+  })
+})
+
 describe('projectFlameCell', () => {
   test('reserves a pixel gap without pushing adjacent frames together', () => {
     const rows = [path(['root'], 100), path(['other'], 100)]

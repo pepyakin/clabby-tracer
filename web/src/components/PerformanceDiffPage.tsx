@@ -346,7 +346,7 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
         </div>
       </FlameTimeline>
       <div className="pd-flame-viewport" onWheel={onWheel}>
-        <div ref={flameRef} className="pd-flame" style={{ height: `${Math.max(150, (layout.depth + 1) * 20 + 4)}px` }}>
+        <div ref={flameRef} className="pd-flame" style={{ minHeight: `${(layout.depth + 1) * 20 + 4}px` }}>
           {projected.map(({ cell, position }) => {
             const matching = match !== '' && cell.row.path.some((part) => part.toLowerCase().includes(match))
             const dimmed = match !== '' && !matching
