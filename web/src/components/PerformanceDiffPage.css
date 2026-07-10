@@ -146,7 +146,9 @@
 }
 .pd-flame-toolbar > div:first-child { display: flex; flex-direction: column; }
 .pd-flame-help { font-size: var(--font-size-xs); }
-.pd-flame-actions { display: flex; gap: 6px; }
+.pd-flame-actions { display: flex; align-items: stretch; gap: 6px; }
+.pd-flame-actions .btn,
+.pd-flame-actions .input { height: var(--pd-control-height); }
 .pd-flame-search { width: 210px; }
 .pd-focus-path { padding: 5px 10px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pd-flame-minimap-bars { position: absolute; inset: 4px; overflow: hidden; }

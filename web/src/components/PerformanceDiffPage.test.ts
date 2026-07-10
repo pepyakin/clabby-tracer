@@ -74,6 +74,13 @@ describe('performance diff workspace CSS', () => {
     expect(contentRule).toContain('flex: 1')
     expect(css).toContain('.pd-content > .pd-flame-panel')
   })
+
+  test('aligns flamegraph toolbar controls to one height', async () => {
+    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
+
+    expect(css).toContain('.pd-flame-actions .btn')
+    expect(css).toContain('height: var(--pd-control-height)')
+  })
 })
 
 describe('projectFlameCell', () => {
