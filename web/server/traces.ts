@@ -18,7 +18,7 @@ import {
 import { assembleComparison, buildAggregateTree } from '../src/lib/trace'
 import { flattenAggregate, serializeTrace } from '../src/lib/wire'
 import type { AggregateResponse, TraceOverview } from '../src/lib/apischema'
-import { MAX_LIMIT, parseSearchQuery } from './params'
+import { parseSearchQuery } from './params'
 import { badRequest, type InvalidParam } from './problem'
 import { json, type Deps } from './router'
 
@@ -246,24 +246,10 @@ async function assembleTargets(
   return model
 }
 
-/**
- * The search caps at MAX_LIMIT rows; hitting it means there are more matches in
- * the range than one comparison can hold. Surface that as a warning so the
- * comparison never *silently* drops nodes — the caller narrows the range to see
- * the rest.
- */
-function warnIfTruncated(model: TraceModel, matched: number, noun: string): void {
-  if (matched >= MAX_LIMIT) {
-    model.warnings.push(
-      `more than ${MAX_LIMIT} ${noun} matched; comparison shows the newest ${MAX_LIMIT} — narrow the time range to include the rest`,
-    )
-  }
-}
-
 /** Compare a span across nodes: locate it per node trace, then assemble. */
 async function assembleFromQuery(filter: FilterState, range: TimeRange, deps: Deps): Promise<TraceModel> {
-  const rows = await deps.tempo.searchTraces({ ...filter, limit: MAX_LIMIT }, range)
-  const model = await assembleTargets(
+  const rows = await deps.tempo.searchAllTraces(filter, range)
+  return assembleTargets(
     rows
       .filter((s) => s.matchedSpanIds.length > 0)
       .map((s) => ({ traceId: s.traceId, spanIds: s.matchedSpanIds })),
@@ -271,21 +257,17 @@ async function assembleFromQuery(filter: FilterState, range: TimeRange, deps: De
     filter.name.trim(),
     deps,
   )
-  warnIfTruncated(model, rows.length, 'traces')
-  return model
 }
 
 /** Compare an event across nodes by assembling the spans that own each match. */
 async function assembleFromEvents(filter: FilterState, range: TimeRange, deps: Deps): Promise<TraceModel> {
-  const events = await deps.tempo.searchEvents({ ...filter, limit: MAX_LIMIT }, range)
-  const model = await assembleTargets(
+  const events = await deps.tempo.searchAllEvents(filter, range)
+  return assembleTargets(
     events.map((e) => ({ traceId: e.traceId, spanIds: [e.spanId] })),
     'events',
     filter.name.trim(),
     deps,
   )
-  warnIfTruncated(model, events.length, 'events')
-  return model
 }
 
 /**

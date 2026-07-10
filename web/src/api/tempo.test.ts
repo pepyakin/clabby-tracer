@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, test } from 'bun:test'
+import { DEFAULT_FILTER } from '../lib/model'
 import { TempoClient } from './tempo'
 
 /*
@@ -60,6 +61,64 @@ describe('TempoClient fallback deadline', () => {
     await expect(client.tagValues('service.name', 'resource')).rejects.toThrow()
     expect(Date.now() - t0).toBeLessThan(550)
     expect(calls).toHaveLength(1)
+  })
+})
+
+const searchTrace = (id: string, startSecond: number) => ({
+  traceID: id,
+  startTimeUnixNano: String(BigInt(startSecond) * 1_000_000_000n),
+  spanSets: [{
+    matched: 1,
+    spans: [{ spanID: `${id}01`, name: 'round', attributes: [] }],
+  }],
+})
+
+describe('TempoClient exhaustive search', () => {
+  test('subdivides saturated windows and returns every unique trace', async () => {
+    const complete = [0, 1, 2, 3, 4].map((second) =>
+      searchTrace(`trace-${second}`, second),
+    )
+    const saturated = Array.from({ length: 1000 }, (_, index) =>
+      searchTrace(`partial-${index}`, index % 5),
+    )
+    const windows: Array<[number, number]> = []
+    globalThis.fetch = (async (input: string | URL | Request) => {
+      const url = new URL(String(input))
+      const from = Number(url.searchParams.get('start'))
+      const to = Number(url.searchParams.get('end'))
+      windows.push([from, to])
+      if (from === 0 && to === 4) return Response.json({ traces: saturated })
+      return Response.json({
+        traces: complete.filter((trace) => {
+          const second = Number(BigInt(trace.startTimeUnixNano) / 1_000_000_000n)
+          return second >= from && second <= to
+        }),
+      })
+    }) as unknown as typeof fetch
+
+    const client = new TempoClient('http://tempo.test')
+    const traces = await client.searchAllTraces(DEFAULT_FILTER, { from: 0, to: 4 })
+
+    expect(traces.map((trace) => trace.traceId)).toEqual([
+      'trace-4',
+      'trace-3',
+      'trace-2',
+      'trace-1',
+      'trace-0',
+    ])
+    expect(windows).toEqual([[0, 4], [0, 2], [2, 4]])
+  })
+
+  test('rejects an irreducibly saturated one-second window', async () => {
+    const saturated = Array.from({ length: 1000 }, (_, index) =>
+      searchTrace(`partial-${index}`, 0),
+    )
+    globalThis.fetch = (async () => Response.json({ traces: saturated })) as unknown as typeof fetch
+
+    const client = new TempoClient('http://tempo.test')
+    await expect(client.searchAllTraces(DEFAULT_FILTER, { from: 0, to: 1 })).rejects.toThrow(
+      /cannot exhaust Tempo search/i,
+    )
   })
 })
 

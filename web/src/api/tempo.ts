@@ -32,6 +32,12 @@ const MAX_SPANS_PER_SPAN_SET = 100
  * merged result is still sliced to the caller's `limit`.
  */
 const WINDOW_FETCH_LIMIT = 1000
+const EXHAUSTIVE_SEARCH_CONCURRENCY = 8
+
+interface SearchBatch<T> {
+  items: T[]
+  saturated: boolean
+}
 
 /** Pipeline suffix appended to event searches (exported so the API server's
  * query echo states exactly what was executed). */
@@ -115,6 +121,23 @@ export class TempoClient implements ITempoClient {
   }
 
   /**
+   * Return every trace in the range. Tempo search has no cursor, so saturated
+   * windows are bisected until each response is provably below its result cap.
+   */
+  async searchAllTraces(filter: FilterState, range: TimeRange): Promise<TraceSummary[]> {
+    const query = buildTraceQL(filter)
+    return this.exhaustiveSearch(
+      range,
+      (window) => this.searchWindowBatch(query, WINDOW_FETCH_LIMIT, window, (trace) => {
+        const summary = toSummary(trace)
+        return summary === null ? [] : [summary]
+      }),
+      (trace) => trace.traceId,
+      (trace) => trace.startUnixMs,
+    )
+  }
+
+  /**
    * Event-targeted search. Tempo search returns matched SPANS (the spans
    * containing matching events), so each row carries span-level timing plus
    * the matched event name; `select()` enriches rows with the span name,
@@ -129,6 +152,65 @@ export class TempoClient implements ITempoClient {
       eventSummaryKey,
       (e) => e.spanStartUnixMs,
     )
+  }
+
+  /** Exhaustive event equivalent of searchAllTraces(). */
+  async searchAllEvents(filter: FilterState, range: TimeRange): Promise<EventSummary[]> {
+    const query = `${buildTraceQL(filter, 'events')}${EVENT_SELECT}`
+    return this.exhaustiveSearch(
+      range,
+      (window) => this.searchWindowBatch(query, WINDOW_FETCH_LIMIT, window, toEventSummaries),
+      eventSummaryKey,
+      (event) => event.spanStartUnixMs,
+    )
+  }
+
+  private async exhaustiveSearch<T>(
+    range: TimeRange,
+    fetchWindow: (window: TimeRange) => Promise<SearchBatch<T>>,
+    key: (item: T) => string,
+    startMs: (item: T) => number,
+  ): Promise<T[]> {
+    const pending: TimeRange[] = [{ from: Math.floor(range.from), to: Math.ceil(range.to) }]
+    const complete: T[][] = []
+
+    while (pending.length > 0) {
+      const windows = pending.splice(0, EXHAUSTIVE_SEARCH_CONCURRENCY)
+      const batches = await Promise.all(windows.map(fetchWindow))
+
+      for (let index = 0; index < windows.length; index++) {
+        const window = windows[index]
+        const batch = batches[index]
+        if (!batch.saturated) {
+          complete.push(batch.items)
+          continue
+        }
+
+        if (window.to - window.from <= 1) {
+          throw new Error(
+            `Cannot exhaust Tempo search: at least ${WINDOW_FETCH_LIMIT} matches share the one-second window ${window.from}-${window.to}, and Tempo returned no cursor for the remainder.`,
+          )
+        }
+
+        const middle = Math.floor((window.from + window.to) / 2)
+        pending.push(
+          { from: window.from, to: middle },
+          { from: middle, to: window.to },
+        )
+      }
+    }
+
+    const items: T[] = []
+    const seen = new Set<string>()
+    for (const batch of complete) {
+      for (const item of batch) {
+        const itemKey = key(item)
+        if (seen.has(itemKey)) continue
+        seen.add(itemKey)
+        items.push(item)
+      }
+    }
+    return items.sort((a, b) => startMs(b) - startMs(a))
   }
 
   /**
@@ -178,6 +260,15 @@ export class TempoClient implements ITempoClient {
     w: TimeRange,
     map: (trace: unknown) => T[],
   ): Promise<T[]> {
+    return (await this.searchWindowBatch(q, limit, w, map)).items
+  }
+
+  private async searchWindowBatch<T>(
+    q: string,
+    limit: number,
+    w: TimeRange,
+    map: (trace: unknown) => T[],
+  ): Promise<SearchBatch<T>> {
     const params = new URLSearchParams({
       q,
       start: String(w.from),
@@ -190,7 +281,10 @@ export class TempoClient implements ITempoClient {
       typeof data === 'object' && data !== null && Array.isArray((data as { traces?: unknown }).traces)
         ? ((data as { traces: unknown[] }).traces)
         : []
-    return traces.flatMap(map)
+    return {
+      items: traces.flatMap(map),
+      saturated: traces.length >= limit,
+    }
   }
 
   // ----------------------------------------------------------------- trace --
