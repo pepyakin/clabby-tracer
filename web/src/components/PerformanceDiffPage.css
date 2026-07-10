@@ -156,12 +156,12 @@
   min-width: 0;
   background: var(--surface-hover);
 }
-.pd-flame-viewport { min-width: 0; min-height: 0; flex: 1; overflow: hidden; background: var(--flame-bg); }
+.pd-flame-viewport { min-width: 0; min-height: 0; flex: 1; overflow-x: hidden; overflow-y: auto; background: var(--flame-bg); }
 .pd-flame { position: relative; width: calc(100% - 8px); height: 100%; min-width: 0; margin-inline: 4px; }
 .pd-frame {
   position: absolute;
   box-sizing: border-box;
-  height: 16px;
+  height: 18px;
   min-width: 0;
   padding: 0 8px;
   display: flex;

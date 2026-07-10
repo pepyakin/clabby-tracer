@@ -268,12 +268,16 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
   const [focusedKey, setFocusedKey] = useState<string | null>(null)
   const [query, setQuery] = useState('')
   const [plotWidth, setPlotWidth] = useState(0)
+  const [plotHeight, setPlotHeight] = useState(0)
   const [view, setView] = useState<FlameView>({ low: 0, high: 100 })
   const flameRef = useRef<HTMLDivElement | null>(null)
+  const viewportRef = useRef<HTMLDivElement | null>(null)
   const minimapRef = useRef<HTMLDivElement | null>(null)
   const layout = useMemo(() => layoutFlame(rows, focusedKey), [rows, focusedKey])
   const match = query.trim().toLowerCase()
   const focused = focusedKey === null ? null : rows.find((row) => row.key === focusedKey) ?? null
+  const rowHeight = Math.min(30, Math.max(22, plotHeight / (layout.depth + 1)))
+  const barHeight = rowHeight - 4
   const projected = useMemo(() => layout.cells.flatMap((cell) => {
     const position = projectFlameCell(cell, plotWidth, view)
     if (position.width <= 0) return []
@@ -282,11 +286,16 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
 
   useLayoutEffect(() => {
     const flame = flameRef.current
-    if (flame === null) return
-    const resize = () => setPlotWidth(flame.clientWidth)
+    const viewport = viewportRef.current
+    if (flame === null || viewport === null) return
+    const resize = () => {
+      setPlotWidth(flame.clientWidth)
+      setPlotHeight(viewport.clientHeight)
+    }
     resize()
     const observer = new ResizeObserver(resize)
     observer.observe(flame)
+    observer.observe(viewport)
     return () => observer.disconnect()
   }, [])
 
@@ -302,11 +311,16 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
   }
 
   const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    const amount = event.shiftKey && event.deltaX === 0
+      ? event.deltaY
+      : Math.abs(event.deltaX) >= Math.abs(event.deltaY) ? event.deltaX : 0
+    if (amount === 0) return
     event.preventDefault()
     const rect = event.currentTarget.getBoundingClientRect()
     const cursor = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
     const anchor = view.low + cursor * (view.high - view.low)
-    zoomAt(anchor, Math.exp(event.deltaY * 0.0015))
+    const delta = event.deltaMode === 1 ? amount * 24 : amount
+    zoomAt(anchor, Math.exp(delta * 0.0022))
   }
 
   return (
@@ -345,8 +359,8 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
           }} />)}
         </div>
       </FlameTimeline>
-      <div className="pd-flame-viewport" onWheel={onWheel}>
-        <div ref={flameRef} className="pd-flame" style={{ minHeight: `${(layout.depth + 1) * 20 + 4}px` }}>
+      <div ref={viewportRef} className="pd-flame-viewport" onWheel={onWheel}>
+        <div ref={flameRef} className="pd-flame" style={{ minHeight: `${(layout.depth + 1) * rowHeight + 4}px` }}>
           {projected.map(({ cell, position }) => {
             const matching = match !== '' && cell.row.path.some((part) => part.toLowerCase().includes(match))
             const dimmed = match !== '' && !matching
@@ -358,7 +372,8 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
                 left: `${position.left}px`,
                 width: `${position.width}px`,
                 paddingInline: position.width >= 48 ? '8px' : position.width >= 20 ? '4px' : '0',
-                top: `${cell.depth * 20 + 2}px`,
+                top: `${cell.depth * rowHeight + 2}px`,
+                height: `${barHeight}px`,
                 background: frameBackground(cell.row),
               }}
               onClick={() => onSelect(cell.row.key)}
