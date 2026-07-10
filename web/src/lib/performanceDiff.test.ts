@@ -115,6 +115,26 @@ describe('analyzePerformanceDiff', () => {
     expect(diff.root?.relativeInterval).not.toBeNull()
   })
 
+  test('includes asynchronous descendants in a path subtree cost', () => {
+    const baseline = model(1)
+    const candidate = model(1)
+    for (const trace of [baseline, candidate]) {
+      for (const instance of trace.instances) {
+        for (const root of instance.rootSpans) {
+          root.durationNs = 342_000
+          root.children[0].startNs = 1_000_000
+          root.children[0].durationNs = 70_000_000
+        }
+      }
+    }
+
+    const diff = analyzePerformanceDiff(baseline, candidate, 0.02, { resamples: 20 })
+    const root = diff.paths.find((row) => row.path.join('/') === 'round')
+
+    expect(root?.baseline.meanNs).toBe(71_000_000)
+    expect(root?.baseline.meanNs).toBeGreaterThanOrEqual(70_000_000)
+  })
+
   test('adjusts p-values monotonically in original order', () => {
     expect(adjustPValues([0.01, 0.04, 0.03, null])).toEqual([0.03, 0.04, 0.04, null])
   })

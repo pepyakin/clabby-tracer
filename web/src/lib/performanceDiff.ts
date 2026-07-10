@@ -40,16 +40,25 @@ function pathKey(path: readonly string[]): string {
 
 function collectOperation(root: SpanNode, paths: Map<string, string[]>): Operation {
   const costs = new Map<string, PathCost>()
-  const visit = (span: SpanNode, path: string[]): void => {
+  const visit = (span: SpanNode, path: string[]): { startNs: number; endNs: number } => {
     const nextPath = [...path, span.name]
     const key = pathKey(nextPath)
     paths.set(key, nextPath)
+    // Async work can outlive its dispatch span. The path represents the full
+    // subtree operation, so its latency is the subtree's elapsed envelope.
+    let startNs = span.startNs
+    let endNs = span.startNs + span.durationNs
+    for (const child of span.children) {
+      const childBounds = visit(child, nextPath)
+      startNs = Math.min(startNs, childBounds.startNs)
+      endNs = Math.max(endNs, childBounds.endNs)
+    }
     const cost = costs.get(key) ?? { durationNs: 0, calls: 0, errors: 0 }
-    cost.durationNs += span.durationNs
+    cost.durationNs += endNs - startNs
     cost.calls++
     if (span.status === 'error' || span.level === 'error') cost.errors++
     costs.set(key, cost)
-    for (const child of span.children) visit(child, nextPath)
+    return { startNs, endNs }
   }
   visit(root, [])
   return { instanceId: root.instanceId, costs }
