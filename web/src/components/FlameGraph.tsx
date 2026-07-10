@@ -621,6 +621,20 @@ export default function FlameGraph(props: FlameGraphProps) {
     return { lo, hi: Math.max(hi, lo + 1), focused: true, lanes: sortLanes(lanes, laneSort) }
   }, [model, focusName, hiddenInstances, laneSort])
 
+  const spanSearch = highlight.trim().toLowerCase()
+  const displayedLanes = useMemo(
+    () => spanSearch === ''
+      ? active.lanes
+      : active.lanes.filter((lane) =>
+          lane.spans.some(({ span }) => span.name.toLowerCase().includes(spanSearch)),
+        ),
+    [active.lanes, spanSearch],
+  )
+  const matchingInstanceIds = useMemo(
+    () => new Set(displayedLanes.map((lane) => lane.inst.id)),
+    [displayedLanes],
+  )
+
   // Zoom/timeline extent: focus subtree in 'instances' mode, else full domain.
   const rangeLo = mode === 'instances' ? active.lo : 0
   const rangeHi = mode === 'instances' ? active.hi : domain
@@ -641,7 +655,7 @@ export default function FlameGraph(props: FlameGraphProps) {
       themeRef.current = theme
     }
 
-    const hl = highlight.trim().toLowerCase()
+    const hl = spanSearch
     const accRgb = parseRgb(theme.accent) ?? [123, 135, 247]
     const selfOverlay = `rgba(${accRgb[0]}, ${accRgb[1]}, ${accRgb[2]}, 0.6)`
     const bgRgb = parseRgb(theme.flameBg) ?? [18, 18, 23]
@@ -652,7 +666,7 @@ export default function FlameGraph(props: FlameGraphProps) {
     const lanes: Lane[] = []
     let totalRows = 0
     if (mode === 'instances') {
-      for (const al of active.lanes) {
+      for (const al of displayedLanes) {
         const rowCount = al.maxDepth + 1
         lanes.push({ inst: al.inst, spans: al.spans, startRow: totalRows, rowCount })
         totalRows += rowCount + LANE_GAP_ROWS
@@ -915,7 +929,11 @@ export default function FlameGraph(props: FlameGraphProps) {
         ctx.font = theme.font
         ctx.fillStyle = theme.textFaint
         ctx.textAlign = 'center'
-        ctx.fillText('all instances hidden', cssW / 2, (RULER_H + cssH) / 2)
+        ctx.fillText(
+          spanSearch === '' ? 'all instances hidden' : 'no spans match search',
+          cssW / 2,
+          (RULER_H + cssH) / 2,
+        )
         ctx.textAlign = 'left'
       }
     } else if (mergedLayout) {
@@ -1038,7 +1056,12 @@ export default function FlameGraph(props: FlameGraphProps) {
     lanes.forEach((al, li) => {
       const laneTop = li * laneH
       const h = Math.max(laneH - gap, 2)
-      ctx.fillStyle = instanceColor(theme, al.inst.colorIndex).base
+      const hasMatch = spanSearch === '' || al.spans.some(({ span: item }) =>
+        item.name.toLowerCase().includes(spanSearch),
+      )
+      ctx.fillStyle = hasMatch
+        ? instanceColor(theme, al.inst.colorIndex).base
+        : theme.textFaint
       for (const { span: s } of al.spans) {
         const x = ((s.startNs - lo) / span) * cssW
         const w = Math.max((s.durationNs / span) * cssW, 1)
@@ -1395,15 +1418,15 @@ export default function FlameGraph(props: FlameGraphProps) {
       ? focusName
       : (() => {
           const names = new Set<string>()
-          for (const lane of active.lanes)
+          for (const lane of displayedLanes)
             for (const ls of lane.spans) if (ls.depth === 0) names.add(ls.span.name)
           return names.size === 1 ? [...names][0] : names.size === 0 ? 'trace' : 'multiple roots'
         })()
 
   // Span/instance counts for the header: the focused subtree across visible
   // instances when focused, else every visible instance's spans.
-  const shownSpans = active.lanes.reduce((n, lane) => n + lane.spans.length, 0)
-  const shownInstances = active.lanes.length
+  const shownSpans = displayedLanes.reduce((n, lane) => n + lane.spans.length, 0)
+  const shownInstances = displayedLanes.length
 
   return (
     <div className="fg" ref={rootRef} tabIndex={0} onKeyDown={handleKeyDown}>
@@ -1452,13 +1475,21 @@ export default function FlameGraph(props: FlameGraphProps) {
           })()}
         {model.instances.map((inst) => {
           const hidden = hiddenInstances.has(inst.id)
+          const missedBySearch = spanSearch !== '' && !hidden && !matchingInstanceIds.has(inst.id)
+          const stateClass = hidden
+            ? ' fg-chip-hidden'
+            : missedBySearch
+              ? ' fg-chip-missed'
+              : ''
+          const action = hidden ? 'show' : 'hide'
+          const searchState = missedBySearch ? ' · no spans match search' : ''
           return (
             <button
               key={inst.id}
               type="button"
-              className={`chip fg-chip${hidden ? ' fg-chip-hidden' : ''}`}
+              className={`chip fg-chip${stateClass}`}
               aria-pressed={!hidden}
-              title={`${inst.id} · ${inst.spanCount} spans · click to ${hidden ? 'show' : 'hide'}`}
+              title={`${inst.id} · ${inst.spanCount} spans${searchState} · click to ${action}`}
               onClick={() => onToggleInstance(inst.id)}
             >
               <span

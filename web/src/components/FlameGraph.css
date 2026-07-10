@@ -36,6 +36,17 @@
   opacity: 0.4;
 }
 
+.fg-chip-missed {
+  background: transparent;
+  border-style: dashed;
+  color: var(--text-faint);
+}
+
+.fg-chip-missed .swatch {
+  filter: grayscale(1);
+  opacity: 0.35;
+}
+
 /* Sub-tree focus indicator / clear button. */
 .fg-focus-chip {
   gap: 6px;
