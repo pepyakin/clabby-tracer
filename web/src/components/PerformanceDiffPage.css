@@ -414,9 +414,23 @@
 .pd-callee-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pd-callee-list .mono-num { min-width: 0; }
 .pd-leaf { padding-top: 7px; }
-.pd-analysis-layout { width: 100%; min-width: 0; display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr); align-items: start; gap: 8px; }
+.pd-analysis-layout {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-areas:
+    "nodes behavior"
+    "operations impact";
+  grid-template-columns: minmax(0, 1.55fr) minmax(280px, 0.75fr);
+  align-items: stretch;
+  gap: 8px;
+}
 .pd-analysis-plots,
-.pd-analysis-sidebar { min-width: 0; display: flex; flex-direction: column; gap: 8px; }
+.pd-analysis-sidebar { display: contents; }
+.pd-node-distribution-card { grid-area: nodes; }
+.pd-operation-distribution-card { grid-area: operations; }
+.pd-behavior-card { grid-area: behavior; }
+.pd-node-impact { grid-area: impact; }
 .pd-investigation-card { min-width: 0; overflow: hidden; }
 .pd-node-distribution { display: block; width: 100%; height: 160px; margin-top: 4px; }
 .pd-node-distribution line.grid { stroke: var(--border); stroke-width: 1; }
@@ -470,7 +484,14 @@
   .pd-controls { grid-template-columns: auto 1fr; }
   .pd-summary-line { grid-column: 1 / -1; grid-row: 2; justify-content: flex-start; }
   .pd-metrics { grid-template-columns: 1fr 1fr; }
-  .pd-analysis-layout { grid-template-columns: 1fr; }
+  .pd-analysis-layout {
+    grid-template-areas:
+      "nodes"
+      "operations"
+      "behavior"
+      "impact";
+    grid-template-columns: 1fr;
+  }
   .pd-node-populations { grid-template-columns: 1fr; }
   .pd-callee-list { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

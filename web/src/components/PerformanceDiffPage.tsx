@@ -714,18 +714,18 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
         </section>
         <div className="pd-analysis-layout">
           <div className="pd-analysis-plots">
-            <section className="pd-investigation-card">
+            <section className="pd-investigation-card pd-node-distribution-card">
               <div className="pd-section-heading"><span className="panel-title">node distribution</span><span className="faint">means · band = middle 50% · whisker = 10–90%</span></div>
               <NodeDistributionPlot instances={row.instances} />
             </section>
-            <section className="pd-investigation-card pd-distribution">
+            <section className="pd-investigation-card pd-distribution pd-operation-distribution-card">
               <div className="pd-section-heading"><span className="panel-title">operation distribution</span><span className="faint">empirical cumulative distribution</span></div>
               <Ecdf baseline={row.baselineValuesNs} candidate={row.candidateValuesNs} />
               <div className="pd-legend"><span className="baseline">baseline</span><span className="candidate">candidate</span></div>
             </section>
           </div>
           <aside className="pd-analysis-sidebar">
-            <section className="pd-investigation-card">
+            <section className="pd-investigation-card pd-behavior-card">
               <span className="panel-title">behavior changes</span>
               <dl className="pd-detail-stats">
                 <dt>median</dt><dd>{formatNs(row.baseline.medianNs)} → {formatNs(row.candidate.medianNs)}</dd>
