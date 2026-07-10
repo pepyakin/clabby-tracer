@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent, type WheelEvent as ReactWheelEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type {
   PerformanceDiffPageProps,
@@ -198,6 +198,20 @@ interface FlameCell {
   depth: number
 }
 
+interface FlameView {
+  low: number
+  high: number
+}
+
+export function projectFlameCell(cell: FlameCell, plotWidth: number, view: FlameView): { left: number; width: number } {
+  const scale = plotWidth / Math.max(0.001, view.high - view.low)
+  const start = (cell.left - view.low) * scale
+  const end = (cell.left + cell.width - view.low) * scale
+  const left = Math.max(0, start)
+  const right = Math.min(plotWidth, end)
+  return { left, width: Math.max(0, right - left - 2) }
+}
+
 export function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | null): { cells: FlameCell[]; depth: number } {
   const focus = focusedKey === null ? null : rows.find((row) => row.key === focusedKey) ?? null
   const visible = focus === null
@@ -252,9 +266,64 @@ function frameBackground(row: PerformancePathDiff): string | undefined {
 function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff[]; selectedKey: string | null; onSelect: (key: string) => void }) {
   const [focusedKey, setFocusedKey] = useState<string | null>(null)
   const [query, setQuery] = useState('')
+  const [plotWidth, setPlotWidth] = useState(0)
+  const [view, setView] = useState<FlameView>({ low: 0, high: 100 })
+  const flameRef = useRef<HTMLDivElement | null>(null)
+  const minimapRef = useRef<HTMLDivElement | null>(null)
+  const dragRef = useRef<{ clientX: number; view: FlameView } | null>(null)
   const layout = useMemo(() => layoutFlame(rows, focusedKey), [rows, focusedKey])
   const match = query.trim().toLowerCase()
   const focused = focusedKey === null ? null : rows.find((row) => row.key === focusedKey) ?? null
+  const projected = useMemo(() => layout.cells.flatMap((cell) => {
+    const position = projectFlameCell(cell, plotWidth, view)
+    if (position.width <= 0) return []
+    return [{ cell, position }]
+  }), [layout.cells, plotWidth, view])
+
+  useLayoutEffect(() => {
+    const flame = flameRef.current
+    if (flame === null) return
+    const resize = () => setPlotWidth(flame.clientWidth)
+    resize()
+    const observer = new ResizeObserver(resize)
+    observer.observe(flame)
+    return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => setView({ low: 0, high: 100 }), [focusedKey])
+
+  const zoomAt = (anchor: number, factor: number) => {
+    setView((current) => {
+      const span = Math.min(100, Math.max(2, (current.high - current.low) * factor))
+      const position = (anchor - current.low) / (current.high - current.low)
+      const low = Math.min(100 - span, Math.max(0, anchor - span * position))
+      return { low, high: low + span }
+    })
+  }
+
+  const onWheel = (event: ReactWheelEvent<HTMLDivElement>) => {
+    event.preventDefault()
+    const rect = event.currentTarget.getBoundingClientRect()
+    const cursor = Math.min(1, Math.max(0, (event.clientX - rect.left) / rect.width))
+    const anchor = view.low + cursor * (view.high - view.low)
+    zoomAt(anchor, Math.exp(event.deltaY * 0.0015))
+  }
+
+  const startMinimapDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    dragRef.current = { clientX: event.clientX, view }
+    event.currentTarget.setPointerCapture(event.pointerId)
+  }
+
+  const moveMinimapDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const drag = dragRef.current
+    const minimap = minimapRef.current
+    if (drag === null || minimap === null) return
+    const delta = (event.clientX - drag.clientX) / minimap.clientWidth * 100
+    const span = drag.view.high - drag.view.low
+    const low = Math.min(100 - span, Math.max(0, drag.view.low + delta))
+    setView({ low, high: low + span })
+  }
+
   return (
     <section className="panel pd-flame-panel">
       <div className="pd-flame-toolbar">
@@ -264,13 +333,34 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
         </div>
         <div className="pd-flame-actions">
           <input className="input pd-flame-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="find a span" aria-label="find a span" />
+          {(view.low > 0 || view.high < 100) && <button type="button" className="btn btn-sm" onClick={() => setView({ low: 0, high: 100 })}>reset zoom</button>}
           {focused !== null && <button type="button" className="btn btn-sm" onClick={() => setFocusedKey(null)}>reset focus</button>}
         </div>
       </div>
       {focused !== null && <div className="pd-focus-path"><span className="faint">focused</span> {focused.path.join(' / ')}</div>}
-      <div className="pd-flame-viewport">
-        <div className="pd-flame" style={{ height: `${Math.max(150, (layout.depth + 1) * 20 + 4)}px` }}>
-          {layout.cells.map((cell) => {
+      <div className="pd-flame-minimap" ref={minimapRef}>
+        <div className="pd-flame-minimap-bars" aria-hidden="true">
+          {layout.cells.map((cell) => <i key={cell.row.key} style={{
+            left: `${cell.left}%`,
+            width: `${cell.width}%`,
+            top: `${cell.depth * 3}px`,
+            background: frameBackground(cell.row),
+          }} />)}
+        </div>
+        <button
+          type="button"
+          className="pd-flame-window"
+          style={{ left: `${view.low}%`, width: `${view.high - view.low}%` }}
+          aria-label="drag visible flamegraph range"
+          onPointerDown={startMinimapDrag}
+          onPointerMove={moveMinimapDrag}
+          onPointerUp={() => { dragRef.current = null }}
+          onPointerCancel={() => { dragRef.current = null }}
+        />
+      </div>
+      <div className="pd-flame-viewport" onWheel={onWheel}>
+        <div ref={flameRef} className="pd-flame" style={{ height: `${Math.max(150, (layout.depth + 1) * 20 + 4)}px` }}>
+          {projected.map(({ cell, position }) => {
             const matching = match !== '' && cell.row.path.some((part) => part.toLowerCase().includes(match))
             const dimmed = match !== '' && !matching
             return <button
@@ -278,8 +368,9 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
               key={cell.row.key}
               className={`pd-frame pd-${cell.row.evidence}${selectedKey === cell.row.key ? ' selected' : ''}${matching ? ' matching' : ''}${dimmed ? ' dimmed' : ''}`}
               style={{
-                left: `calc(${cell.left}% + 1px)`,
-                width: `max(0px, calc(${cell.width}% - 2px))`,
+                left: `${position.left}px`,
+                width: `${position.width}px`,
+                paddingInline: position.width >= 48 ? '8px' : position.width >= 20 ? '4px' : '0',
                 top: `${cell.depth * 20 + 2}px`,
                 background: frameBackground(cell.row),
               }}

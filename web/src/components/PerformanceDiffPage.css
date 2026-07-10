@@ -145,6 +145,35 @@
 .pd-flame-actions { display: flex; gap: 6px; }
 .pd-flame-search { width: 210px; }
 .pd-focus-path { padding: 5px 10px; border-bottom: 1px solid var(--border); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pd-flame-minimap {
+  position: relative;
+  height: 42px;
+  margin: 8px 10px;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--inset);
+}
+.pd-flame-minimap-bars { position: absolute; inset: 4px; overflow: hidden; }
+.pd-flame-minimap-bars i {
+  position: absolute;
+  height: 2px;
+  min-width: 0;
+  background: var(--surface-hover);
+}
+.pd-flame-window {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  min-width: 8px;
+  padding: 0;
+  border: 2px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  box-shadow: 0 0 0 9999px color-mix(in srgb, var(--bg) 62%, transparent);
+  cursor: grab;
+}
+.pd-flame-window:active { cursor: grabbing; }
 .pd-flame-viewport { min-width: 0; overflow: hidden; background: var(--flame-bg); }
 .pd-flame { position: relative; width: calc(100% - 8px); min-width: 0; margin-inline: 4px; }
 .pd-frame {

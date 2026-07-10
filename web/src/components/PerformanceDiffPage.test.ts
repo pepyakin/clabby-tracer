@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import type { PerformancePathDiff } from '../lib/model'
-import { layoutFlame } from './PerformanceDiffPage'
+import { layoutFlame, projectFlameCell } from './PerformanceDiffPage'
 
 function path(name: string[], meanNs: number): PerformancePathDiff {
   return {
@@ -63,5 +63,21 @@ describe('flamegraph frame CSS', () => {
     const component = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.tsx`).text()
 
     expect(component).not.toContain('width: `max(1px, calc(${cell.width}% - 2px))`')
+  })
+})
+
+describe('projectFlameCell', () => {
+  test('reserves a pixel gap without pushing adjacent frames together', () => {
+    const rows = [path(['root'], 100), path(['other'], 100)]
+    const [first, second] = layoutFlame(rows, null).cells
+
+    expect(projectFlameCell(first, 100, { low: 0, high: 100 })).toEqual({ left: 0, width: 48 })
+    expect(projectFlameCell(second, 100, { low: 0, high: 100 })).toEqual({ left: 50, width: 48 })
+  })
+
+  test('projects a zoom window back across the full viewport', () => {
+    const cell = layoutFlame([path(['root'], 100), path(['other'], 100)], null).cells[1]
+
+    expect(projectFlameCell(cell, 200, { low: 50, high: 100 })).toEqual({ left: 0, width: 198 })
   })
 })
