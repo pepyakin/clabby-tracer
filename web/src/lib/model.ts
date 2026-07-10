@@ -254,11 +254,13 @@ export interface PerformanceDiffPageProps {
   baselineQuery: string | null
   candidateQuery: string | null
   capturedBaseline: PerformanceSource | null
+  capturedCandidate: PerformanceSource | null
   threshold: number
   view: PerformanceDiffView
   selectedPath: string | null
   loadQuery: (query: string) => Promise<TraceModel>
   onCaptureBaseline: (source: PerformanceSource | null) => void
+  onCaptureCandidate: (source: PerformanceSource | null) => void
   onRouteChange: (next: {
     baselineQuery: string | null
     candidateQuery: string | null

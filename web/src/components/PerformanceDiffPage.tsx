@@ -579,15 +579,15 @@ export default function PerformanceDiffPage({
   baselineQuery,
   candidateQuery,
   capturedBaseline,
+  capturedCandidate,
   threshold,
   view,
   selectedPath,
   loadQuery,
   onCaptureBaseline,
+  onCaptureCandidate,
   onRouteChange,
 }: PerformanceDiffPageProps) {
-  const [candidateUpload, setCandidateUpload] = useState<PerformanceSource | null>(null)
-  const [sourcesExpanded, setSourcesExpanded] = useState(false)
   const [detailsOpen, setDetailsOpen] = useState(false)
   const baselineLive = useQuery({
     queryKey: ['performance-source', baselineQuery],
@@ -609,8 +609,8 @@ export default function PerformanceDiffPage({
     if (candidateQuery !== null) {
       return { kind: 'query', query: candidateQuery, label: queryLabel(candidateQuery) }
     }
-    return candidateQuery === null ? candidateUpload : null
-  }, [candidateQuery, candidateUpload])
+    return candidateQuery === null ? capturedCandidate : null
+  }, [candidateQuery, capturedCandidate])
   const baselineModel: TraceModel | null = baselineQuery !== null
     ? baselineLive.data ?? null
     : baseline?.kind === 'export' ? baseline.model : null
@@ -625,15 +625,7 @@ export default function PerformanceDiffPage({
 
   return (
     <div className="pd-page">
-      {baselineModel !== null && candidateModel !== null && !sourcesExpanded ? (
-        <div className="panel pd-compare-bar">
-          <span className="pd-compare-side"><span className="micro-label">baseline</span><strong title={baseline?.label}>{baseline?.label}</strong></span>
-          <span className="pd-compare-arrow">→</span>
-          <span className="pd-compare-side"><span className="micro-label">candidate</span><strong title={candidate?.label}>{candidate?.label}</strong></span>
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSourcesExpanded(true)}>change inputs</button>
-        </div>
-      ) : <>
-      <div className="pd-sources">
+      {(baselineModel === null || candidateModel === null) && <div className="pd-sources">
         <SourceCard
           side="baseline"
           source={baseline}
@@ -658,14 +650,14 @@ export default function PerformanceDiffPage({
               route({ baselineQuery: candidateQuery, candidateQuery: baselineQuery })
             } else if (baseline?.kind === 'export' && candidate?.kind === 'export') {
               onCaptureBaseline(candidate)
-              setCandidateUpload(baseline)
+              onCaptureCandidate(baseline)
             } else if (baselineQuery !== null && candidate?.kind === 'export') {
               onCaptureBaseline(candidate)
-              setCandidateUpload(null)
+              onCaptureCandidate(null)
               route({ baselineQuery: null, candidateQuery: baselineQuery })
             } else if (baseline?.kind === 'export' && candidateQuery !== null) {
               onCaptureBaseline(null)
-              setCandidateUpload(baseline)
+              onCaptureCandidate(baseline)
               route({ baselineQuery: candidateQuery, candidateQuery: null })
             }
           }}
@@ -679,25 +671,19 @@ export default function PerformanceDiffPage({
           loading={candidateLive.isLoading}
           error={candidateLive.error === null ? null : String(candidateLive.error)}
           onQuery={(query) => {
-            setCandidateUpload(null)
+            onCaptureCandidate(null)
             route({ candidateQuery: query })
           }}
           onFile={(source) => {
-            setCandidateUpload(source)
+            onCaptureCandidate(source)
             route({ candidateQuery: null })
           }}
           onClear={() => {
-            setCandidateUpload(null)
+            onCaptureCandidate(null)
             route({ candidateQuery: null })
           }}
         />
-      </div>
-      {sourcesExpanded && baselineModel !== null && candidateModel !== null && (
-        <button type="button" className="btn btn-ghost btn-sm pd-inputs-done" onClick={() => setSourcesExpanded(false)}>
-          done changing inputs
-        </button>
-      )}
-      </>}
+      </div>}
       {baselineModel === null || candidateModel === null ? (
         <div className="empty-state pd-empty">
           Choose a baseline and candidate. Either side can be a searched comparison or an export.

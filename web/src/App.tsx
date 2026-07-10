@@ -131,9 +131,17 @@ function compareLabel(query: string): string {
   return attr === undefined ? name : `${name} · ${attr}`
 }
 
+function SourcePill({ side, source, onClear }: { side: 'baseline' | 'candidate'; source: PerformanceSource; onClear: () => void }) {
+  return <span className="app-source-pill chip" title={`${side}: ${source.label}`}>
+    <span>{side}: {source.label}</span>
+    <button type="button" onClick={onClear} aria-label={`clear ${side}`}>×</button>
+  </span>
+}
+
 export default function App() {
   const [route, navigate] = useRoute()
   const [capturedBaseline, setCapturedBaseline] = useState<PerformanceSource | null>(storedBaseline)
+  const [capturedCandidate, setCapturedCandidate] = useState<PerformanceSource | null>(null)
   const captureBaseline = useCallback((source: PerformanceSource | null) => {
     setCapturedBaseline(source)
     if (source?.kind === 'query') {
@@ -142,6 +150,13 @@ export default function App() {
       sessionStorage.removeItem(BASELINE_STORAGE_KEY)
     }
   }, [])
+
+  const diffBaseline = route.view !== 'diff' || route.baselineQuery === null
+    ? capturedBaseline
+    : { kind: 'query' as const, query: route.baselineQuery, label: compareLabel(route.baselineQuery) }
+  const diffCandidate = route.view !== 'diff' || route.candidateQuery === null
+    ? capturedCandidate
+    : { kind: 'query' as const, query: route.candidateQuery, label: compareLabel(route.candidateQuery) }
 
   // The theme defaults to the OS preference and tracks it live. The toolbar
   // toggle is an in-memory override only — never persisted, and reset by the
@@ -479,13 +494,29 @@ export default function App() {
         <div className="app-topbar-spacer" />
 
         <div className="app-topbar-end">
-          {capturedBaseline !== null && (
-            <span className="app-baseline chip" title={capturedBaseline.label}>
-              baseline: {capturedBaseline.label}
-              <button type="button" onClick={() => captureBaseline(null)} aria-label="clear baseline">×</button>
-            </span>
-          )}
-          <button
+          {diffBaseline !== null && <SourcePill
+            side="baseline"
+            source={diffBaseline}
+            onClear={() => {
+              if (route.view === 'diff' && route.baselineQuery !== null) {
+                navigate({ ...route, baselineQuery: null, selectedPath: null })
+                return
+              }
+              captureBaseline(null)
+            }}
+          />}
+          {route.view === 'diff' && diffCandidate !== null && <SourcePill
+            side="candidate"
+            source={diffCandidate}
+            onClear={() => {
+              if (route.candidateQuery !== null) {
+                navigate({ ...route, candidateQuery: null, selectedPath: null })
+                return
+              }
+              setCapturedCandidate(null)
+            }}
+          />}
+          {route.view !== 'diff' && <button
             type="button"
             className="btn btn-ghost btn-sm"
             onClick={() => navigate({
@@ -498,7 +529,7 @@ export default function App() {
             })}
           >
             performance diff
-          </button>
+          </button>}
           <span
             className={`app-conn ${connected.data ? 'ok' : 'down'}`}
             title={connected.data ? 'connected to Tempo' : 'Tempo unreachable'}
@@ -554,11 +585,13 @@ export default function App() {
             baselineQuery={route.baselineQuery}
             candidateQuery={route.candidateQuery}
             capturedBaseline={capturedBaseline}
+            capturedCandidate={capturedCandidate}
             threshold={route.threshold}
             view={route.diffView}
             selectedPath={route.selectedPath}
             loadQuery={(query) => client.compareByQuery(query)}
             onCaptureBaseline={captureBaseline}
+            onCaptureCandidate={setCapturedCandidate}
             onRouteChange={(next) => navigate({
               view: 'diff',
               baselineQuery: next.baselineQuery,

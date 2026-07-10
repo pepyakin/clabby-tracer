@@ -60,15 +60,18 @@
   align-items: center;
   gap: 4px;
 }
-.app-baseline {
+.app-source-pill {
   max-width: 260px;
   display: inline-flex;
   gap: 6px;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.app-baseline button {
+.app-source-pill > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.app-source-pill button {
   border: 0;
   padding: 0;
   background: none;

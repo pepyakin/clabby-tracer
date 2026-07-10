@@ -21,17 +21,6 @@
 
 /* ------------------------------------------------------------- inputs -- */
 
-.pd-compare-bar {
-  min-height: 48px;
-  padding: var(--pd-space) var(--pd-space-2);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
-  align-items: center;
-  gap: var(--pd-space-2);
-}
-.pd-compare-side { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
-.pd-compare-side strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pd-compare-arrow { color: var(--text-faint); }
 .pd-sources {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
@@ -58,7 +47,6 @@
 .pd-query-form .input { min-width: 0; flex: 1; }
 .pd-source-error { padding: 0 12px 8px; color: var(--error); }
 .pd-swap { align-self: center; font-size: 16px; }
-.pd-inputs-done { align-self: flex-end; }
 .pd-empty { flex: 1; }
 .pd-analysis-error { color: var(--error); }
 
@@ -421,9 +409,6 @@
 @media (max-width: 850px) {
   .pd-sources { grid-template-columns: 1fr; }
   .pd-swap { justify-self: center; transform: rotate(90deg); }
-  .pd-compare-bar { grid-template-columns: 1fr auto; }
-  .pd-compare-side:nth-of-type(2),
-  .pd-compare-arrow { display: none; }
   .pd-controls,
   .pd-explorer-toolbar { align-items: flex-start; flex-wrap: wrap; }
   .pd-selection { grid-template-columns: minmax(180px, 1fr) auto auto; }
