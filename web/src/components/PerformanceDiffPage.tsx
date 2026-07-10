@@ -178,33 +178,16 @@ function Evidence({ row }: { row: PerformancePathDiff }) {
   return <span className={`pd-evidence pd-${row.evidence}`}>{arrow} {row.evidence.replace('-', ' ')}</span>
 }
 
-function RootSummary({ row, diff }: { row: PerformancePathDiff; diff: PerformanceDiff }) {
+function ComparisonSummary({ row, diff }: { row: PerformancePathDiff; diff: PerformanceDiff }) {
   return (
-    <section className="panel pd-summary">
-      <div className="pd-summary-main">
-        <span className="micro-label">root operation</span>
-        <strong>{row.path.join(' / ')}</strong>
-        <Evidence row={row} />
-      </div>
-      <div className="pd-summary-metric">
-        <span className="faint">baseline</span>
-        <strong className="mono-num">{formatNs(row.baseline.meanNs)}</strong>
-      </div>
-      <div className="pd-summary-arrow">→</div>
-      <div className="pd-summary-metric">
-        <span className="faint">candidate</span>
-        <strong className="mono-num">{formatNs(row.candidate.meanNs)}</strong>
-      </div>
-      <div className="pd-summary-change">
-        <strong className={`mono-num pd-direction ${row.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>
-          {row.absoluteChangeNs > 0 ? '+' : '−'}{formatNs(Math.abs(row.absoluteChangeNs))} · {percent(row.relativeChange)}
-        </strong>
-        <span className="faint mono-num">95% {interval(row)} · p adj {pValue(row.adjustedP)} · Cliff δ {row.effectSize?.toFixed(2) ?? '—'}</span>
-      </div>
-      <div className="pd-summary-samples faint mono-num">
-        {diff.baselineOperations} → {diff.candidateOperations} operations · {diff.baselineInstances.length} → {diff.candidateInstances.length} nodes · {diff.comparisonMode}
-      </div>
-    </section>
+    <div className="pd-summary-line">
+      <strong title={row.path.join(' / ')}>{row.path.at(-1)}</strong>
+      <span className="mono-num">{formatNs(row.baseline.meanNs)} → {formatNs(row.candidate.meanNs)}</span>
+      <strong className={`mono-num pd-direction ${row.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(row.relativeChange)}</strong>
+      <span className="faint mono-num">95% {interval(row)}</span>
+      <Evidence row={row} />
+      <span className="pd-summary-samples faint">{diff.comparisonMode} · {diff.baselineInstances.length} → {diff.candidateInstances.length} nodes</span>
+    </div>
   )
 }
 
@@ -265,6 +248,11 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
   const layout = useMemo(() => layoutFlame(rows, focusedKey), [rows, focusedKey])
   const match = query.trim().toLowerCase()
   const focused = focusedKey === null ? null : rows.find((row) => row.key === focusedKey) ?? null
+  const visibleCells = layout.cells.filter((cell) => {
+    const matching = match !== '' && cell.row.path.some((part) => part.toLowerCase().includes(match))
+    return cell.width >= 0.3 || matching || cell.row.key === selectedKey
+  })
+  const hiddenCount = layout.cells.length - visibleCells.length
   return (
     <section className="panel pd-flame-panel">
       <div className="pd-flame-toolbar">
@@ -280,12 +268,13 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
       {focused !== null && <div className="pd-focus-path"><span className="faint">focused</span> {focused.path.join(' / ')}</div>}
       <div className="pd-flame-viewport">
         <div className="pd-flame" style={{ height: `${Math.max(150, (layout.depth + 1) * 34 + 12)}px` }}>
-          {layout.cells.map((cell) => {
+          {visibleCells.map((cell) => {
             const matching = match !== '' && cell.row.path.some((part) => part.toLowerCase().includes(match))
+            const dimmed = match !== '' && !matching
             return <button
               type="button"
               key={cell.row.key}
-              className={`pd-frame pd-${cell.row.evidence}${selectedKey === cell.row.key ? ' selected' : ''}${matching ? ' matching' : ''}`}
+              className={`pd-frame pd-${cell.row.evidence}${selectedKey === cell.row.key ? ' selected' : ''}${matching ? ' matching' : ''}${dimmed ? ' dimmed' : ''}`}
               style={{
                 left: `calc(${cell.left}% + 1px)`,
                 width: `max(2px, calc(${cell.width}% - 2px))`,
@@ -303,6 +292,7 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
         </div>
       </div>
       <div className="pd-flame-legend">
+        {hiddenCount > 0 && <span className="pd-elided">{hiddenCount} small frames hidden · focus to reveal</span>}
         <span><i className="improved" /> faster</span>
         <span><i className="neutral" /> unchanged / uncertain</span>
         <span><i className="regressed" /> slower</span>
@@ -312,24 +302,19 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
   )
 }
 
-function RankedChanges({ rows, onSelect }: { rows: PerformancePathDiff[]; onSelect: (key: string) => void }) {
-  const ranked = (direction: 'increase' | 'decrease') => rows
-    .filter((row) => direction === 'increase' ? row.absoluteChangeNs > 0 : row.absoluteChangeNs < 0)
-    .sort((a, b) => Math.abs(b.absoluteChangeNs) - Math.abs(a.absoluteChangeNs))
-    .slice(0, 5)
-  const group = (title: string, direction: 'increase' | 'decrease') => (
-    <div className="pd-ranked-group">
-      <span className="micro-label">{title}</span>
-      {ranked(direction).length === 0 ? <span className="faint">none</span> : ranked(direction).map((row) => (
-        <button type="button" key={row.key} onClick={() => onSelect(row.key)}>
-          <span title={row.path.join(' / ')}>{row.path.at(-1)}</span>
-          <span className="mono-num">{row.absoluteChangeNs > 0 ? '+' : '−'}{formatNs(Math.abs(row.absoluteChangeNs))}</span>
-          <Evidence row={row} />
-        </button>
-      ))}
+function SelectionInspector({ row, onAnalyze, onClear }: { row: PerformancePathDiff; onAnalyze: () => void; onClear: () => void }) {
+  return <div className="panel pd-selection">
+    <div className="pd-selection-name">
+      <span className="micro-label">selected span</span>
+      <strong title={row.path.join(' / ')}>{row.path.at(-1)}</strong>
+      <span className="faint" title={row.path.join(' / ')}>{row.path.slice(0, -1).join(' / ') || 'root'}</span>
     </div>
-  )
-  return <section className="pd-ranked">{group('largest cost increases', 'increase')}{group('largest cost decreases', 'decrease')}</section>
+    <span className="mono-num">{formatNs(row.baseline.meanNs)} → {formatNs(row.candidate.meanNs)}</span>
+    <strong className={`mono-num pd-direction ${row.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(row.relativeChange)}</strong>
+    <Evidence row={row} />
+    <button type="button" className="btn btn-primary btn-sm" onClick={onAnalyze}>analyze span</button>
+    <button type="button" className="btn btn-ghost btn-sm" onClick={onClear} aria-label="clear selected span">×</button>
+  </div>
 }
 
 function CostBars({ row, max }: { row: PerformancePathDiff; max: number }) {
@@ -601,6 +586,7 @@ export default function PerformanceDiffPage({
 }: PerformanceDiffPageProps) {
   const [candidateUpload, setCandidateUpload] = useState<PerformanceSource | null>(null)
   const [sourcesExpanded, setSourcesExpanded] = useState(false)
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const baselineLive = useQuery({
     queryKey: ['performance-source', baselineQuery],
     queryFn: () => loadQuery(baselineQuery!),
@@ -720,13 +706,21 @@ export default function PerformanceDiffPage({
         <div className="empty-state pd-empty pd-analysis-error">analysis failed: {analysis.error}</div>
       ) : analysis.result !== null ? (
         <div className="pd-workspace">
-          <div className="pd-content">
+          {detailsOpen && selected !== null ? (
+            <PathDetails
+              row={selected}
+              rows={analysis.result.paths}
+              onSelect={(key) => route({ selectedPath: key })}
+              onClose={() => setDetailsOpen(false)}
+            />
+          ) : <div className="pd-content">
             <div className="pd-controls">
               <span className="pd-view-tabs">
                 {(['overview', 'paths', 'nodes'] as const).map((item) => (
                   <button type="button" key={item} className={`chip ${view === item ? 'active' : ''}`} onClick={() => route({ view: item })}>{item === 'paths' ? 'hot paths' : item}</button>
                 ))}
               </span>
+              {analysis.result.root !== null && <ComparisonSummary row={analysis.result.root} diff={analysis.result} />}
               <span className="pd-threshold">
                 <span className="faint">noise threshold</span>
                 {[0.01, 0.02, 0.05, 0.1].map((value) => (
@@ -736,11 +730,7 @@ export default function PerformanceDiffPage({
             </div>
             {analysis.result.warning !== null && <div className={analysis.result.comparisonMode === 'unpaired' ? 'pd-notice' : 'pd-warning'}>{analysis.result.warning}</div>}
             {view === 'overview' && (
-              <>
-                {analysis.result.root !== null && <RootSummary row={analysis.result.root} diff={analysis.result} />}
-                <RankedChanges rows={analysis.result.paths} onSelect={(key) => route({ selectedPath: key })} />
-                <ImpactTree rows={analysis.result.paths} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />
-              </>
+              <ImpactTree rows={analysis.result.paths} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />
             )}
             {view === 'paths' && <PathExplorer rows={analysis.result.paths} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />}
             {view === 'nodes' && (
@@ -750,8 +740,8 @@ export default function PerformanceDiffPage({
                 onSelect={(key) => route({ selectedPath: key })}
               />
             )}
-          </div>
-          {selected !== null && <PathDetails row={selected} rows={analysis.result.paths} onSelect={(key) => route({ selectedPath: key })} onClose={() => route({ selectedPath: null })} />}
+            {selected !== null && <SelectionInspector row={selected} onAnalyze={() => setDetailsOpen(true)} onClear={() => route({ selectedPath: null })} />}
+          </div>}
         </div>
       ) : (
         <div className="empty-state pd-empty">no performance data</div>
