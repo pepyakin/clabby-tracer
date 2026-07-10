@@ -130,7 +130,7 @@
 
 /* --------------------------------------------------------- flame graph -- */
 
-.pd-flame-panel { min-height: 360px; overflow: hidden; }
+.pd-flame-panel { min-height: 0; overflow: hidden; }
 .pd-flame-toolbar {
   min-height: 48px;
   padding: var(--pd-space) var(--pd-space-2);
@@ -149,6 +149,7 @@
 .pd-flame { position: relative; width: 100%; min-width: 0; }
 .pd-frame {
   position: absolute;
+  box-sizing: border-box;
   height: 16px;
   min-width: 1px;
   padding: 0 8px;
@@ -183,7 +184,6 @@
   color: var(--text-faint);
   font-size: var(--font-size-xs);
 }
-.pd-flame-legend .pd-elided { margin-right: auto; }
 .pd-flame-legend span { display: inline-flex; align-items: center; gap: 5px; }
 .pd-flame-legend i { width: 10px; height: 10px; border-radius: 2px; background: var(--perf-neutral); }
 .pd-flame-legend i.improved { background: var(--perf-improved); }

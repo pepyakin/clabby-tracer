@@ -49,3 +49,12 @@ describe('layoutFlame', () => {
   })
 
 })
+
+describe('flamegraph frame CSS', () => {
+  test('includes padding and borders inside the proportional frame width', async () => {
+    const css = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.css`).text()
+    const frameRule = /\.pd-frame\s*\{([^}]*)\}/.exec(css)?.[1] ?? ''
+
+    expect(frameRule).toContain('box-sizing: border-box')
+  })
+})

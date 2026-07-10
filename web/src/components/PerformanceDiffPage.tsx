@@ -294,7 +294,6 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
         </div>
       </div>
       <div className="pd-flame-legend">
-        <span className="pd-elided">all frames shown</span>
         <span><i className="improved" /> faster</span>
         <span><i className="neutral" /> unchanged / uncertain</span>
         <span><i className="regressed" /> slower</span>
