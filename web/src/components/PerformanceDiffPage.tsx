@@ -8,7 +8,7 @@ import type {
   TraceModel,
 } from '../lib/model'
 import { importTraceExport } from '../lib/export'
-import { formatNs } from '../lib/format'
+import { formatNs, shortId } from '../lib/format'
 import './PerformanceDiffPage.css'
 
 function queryLabel(query: string): string {
@@ -207,49 +207,119 @@ function RootSummary({ row, diff }: { row: PerformancePathDiff; diff: Performanc
   )
 }
 
-function ImpactTree({ rows, onSelect }: { rows: PerformancePathDiff[]; onSelect: (key: string) => void }) {
-  const ordered = [...rows].sort((a, b) => {
-    const left = a.path.join(PATH_SORT_SEPARATOR)
-    const right = b.path.join(PATH_SORT_SEPARATOR)
-    return left.localeCompare(right)
-  })
-  const max = Math.max(1, ...rows.map((row) => Math.max(row.baseline.meanNs, row.candidate.meanNs)))
+interface FlameCell {
+  row: PerformancePathDiff
+  left: number
+  width: number
+  depth: number
+}
+
+function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | null): { cells: FlameCell[]; depth: number } {
+  const focus = focusedKey === null ? null : rows.find((row) => row.key === focusedKey) ?? null
+  const visible = focus === null
+    ? rows
+    : rows.filter((row) => focus.path.every((part, index) => row.path[index] === part))
+  const visibleKeys = new Set(visible.map((row) => row.key))
+  const children = new Map<string, PerformancePathDiff[]>()
+  const roots: PerformancePathDiff[] = []
+  for (const row of visible) {
+    const parentKey = row.path.slice(0, -1).join('\u001f')
+    if (row.key === focus?.key || !visibleKeys.has(parentKey)) {
+      roots.push(row)
+      continue
+    }
+    const siblings = children.get(parentKey)
+    if (siblings === undefined) children.set(parentKey, [row])
+    else siblings.push(row)
+  }
+  const cells: FlameCell[] = []
+  const weight = (row: PerformancePathDiff) => Math.max(1, row.baseline.meanNs, row.candidate.meanNs)
+  const place = (siblings: PerformancePathDiff[], left: number, width: number, depth: number): void => {
+    const ordered = [...siblings].sort((a, b) => weight(b) - weight(a))
+    const total = ordered.reduce((sum, row) => sum + weight(row), 0)
+    let cursor = left
+    for (const row of ordered) {
+      const cellWidth = width * weight(row) / total
+      cells.push({ row, left: cursor, width: cellWidth, depth })
+      const descendants = children.get(row.key)
+      if (descendants !== undefined) place(descendants, cursor, cellWidth, depth + 1)
+      cursor += cellWidth
+    }
+  }
+  place(roots, 0, 100, 0)
+  return { cells, depth: Math.max(0, ...cells.map((cell) => cell.depth)) }
+}
+
+function frameBackground(row: PerformancePathDiff): string | undefined {
+  if (row.evidence === 'added' || row.evidence === 'removed') return undefined
+  if (row.relativeChange === null || row.relativeChange === 0) return undefined
+  const token = row.relativeChange > 0 ? '--perf-regressed' : '--perf-improved'
+  const strength = Math.min(76, 18 + Math.abs(row.relativeChange) * 110)
+  return `color-mix(in srgb, var(${token}) ${strength}%, var(--surface-hover))`
+}
+
+function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff[]; selectedKey: string | null; onSelect: (key: string) => void }) {
+  const [focusedKey, setFocusedKey] = useState<string | null>(null)
+  const [query, setQuery] = useState('')
+  const layout = useMemo(() => layoutFlame(rows, focusedKey), [rows, focusedKey])
+  const match = query.trim().toLowerCase()
+  const focused = focusedKey === null ? null : rows.find((row) => row.key === focusedKey) ?? null
   return (
-    <section className="panel pd-tree-panel">
-      <div className="panel-header">
-        <span className="panel-title">differential call tree</span>
-        <span className="faint">width = cost · color = evidence</span>
+    <section className="panel pd-flame-panel">
+      <div className="pd-flame-toolbar">
+        <div>
+          <span className="panel-title">aggregate differential call tree</span>
+          <span className="pd-flame-help faint">width = max baseline/candidate cost · hue = direction · double-click = focus</span>
+        </div>
+        <div className="pd-flame-actions">
+          <input className="input pd-flame-search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="find a span" aria-label="find a span" />
+          {focused !== null && <button type="button" className="btn btn-sm" onClick={() => setFocusedKey(null)}>reset focus</button>}
+        </div>
       </div>
-      <div className="pd-tree">
-        {ordered.map((row) => (
-          <button
-            type="button"
-            key={row.key}
-            className={`pd-tree-row pd-${row.evidence}`}
-            style={{ marginLeft: `${row.depth * 18}px`, width: `calc(${Math.max(8, Math.max(row.baseline.meanNs, row.candidate.meanNs) / max * 100)}% - ${row.depth * 18}px)` }}
-            onClick={() => onSelect(row.key)}
-            title={`${row.path.join(' / ')} · ${formatNs(row.baseline.meanNs)} → ${formatNs(row.candidate.meanNs)} · ${percent(row.relativeChange)}`}
-          >
-            <span>{row.path.at(-1)}</span>
-            <span className="mono-num">{percent(row.relativeChange)}</span>
-          </button>
-        ))}
+      {focused !== null && <div className="pd-focus-path"><span className="faint">focused</span> {focused.path.join(' / ')}</div>}
+      <div className="pd-flame-viewport">
+        <div className="pd-flame" style={{ height: `${Math.max(150, (layout.depth + 1) * 34 + 12)}px` }}>
+          {layout.cells.map((cell) => {
+            const matching = match !== '' && cell.row.path.some((part) => part.toLowerCase().includes(match))
+            return <button
+              type="button"
+              key={cell.row.key}
+              className={`pd-frame pd-${cell.row.evidence}${selectedKey === cell.row.key ? ' selected' : ''}${matching ? ' matching' : ''}`}
+              style={{
+                left: `calc(${cell.left}% + 1px)`,
+                width: `max(2px, calc(${cell.width}% - 2px))`,
+                top: `${cell.depth * 34 + 6}px`,
+                background: frameBackground(cell.row),
+              }}
+              onClick={() => onSelect(cell.row.key)}
+              onDoubleClick={() => setFocusedKey(cell.row.key)}
+              title={`${cell.row.path.join(' / ')}\n${formatNs(cell.row.baseline.meanNs)} → ${formatNs(cell.row.candidate.meanNs)} (${percent(cell.row.relativeChange)})`}
+            >
+              <span className="pd-frame-name">{cell.row.path.at(-1)}</span>
+              <span className="pd-frame-delta mono-num">{percent(cell.row.relativeChange)}</span>
+            </button>
+          })}
+        </div>
+      </div>
+      <div className="pd-flame-legend">
+        <span><i className="improved" /> faster</span>
+        <span><i className="neutral" /> unchanged / uncertain</span>
+        <span><i className="regressed" /> slower</span>
+        <span><i className="structural" /> added / removed</span>
       </div>
     </section>
   )
 }
 
-const PATH_SORT_SEPARATOR = '\u0000'
-
 function RankedChanges({ rows, onSelect }: { rows: PerformancePathDiff[]; onSelect: (key: string) => void }) {
-  const ranked = (evidence: 'regressed' | 'improved') => rows
-    .filter((row) => row.evidence === evidence)
+  const ranked = (direction: 'increase' | 'decrease') => rows
+    .filter((row) => direction === 'increase' ? row.absoluteChangeNs > 0 : row.absoluteChangeNs < 0)
     .sort((a, b) => Math.abs(b.absoluteChangeNs) - Math.abs(a.absoluteChangeNs))
     .slice(0, 5)
-  const group = (title: string, evidence: 'regressed' | 'improved') => (
+  const group = (title: string, direction: 'increase' | 'decrease') => (
     <div className="pd-ranked-group">
       <span className="micro-label">{title}</span>
-      {ranked(evidence).length === 0 ? <span className="faint">none</span> : ranked(evidence).map((row) => (
+      {ranked(direction).length === 0 ? <span className="faint">none</span> : ranked(direction).map((row) => (
         <button type="button" key={row.key} onClick={() => onSelect(row.key)}>
           <span title={row.path.join(' / ')}>{row.path.at(-1)}</span>
           <span className="mono-num">{row.absoluteChangeNs > 0 ? '+' : '−'}{formatNs(Math.abs(row.absoluteChangeNs))}</span>
@@ -257,57 +327,94 @@ function RankedChanges({ rows, onSelect }: { rows: PerformancePathDiff[]; onSele
       ))}
     </div>
   )
-  return <section className="panel pd-ranked">{group('largest regressions', 'regressed')}{group('largest improvements', 'improved')}</section>
+  return <section className="pd-ranked">{group('largest cost increases', 'increase')}{group('largest cost decreases', 'decrease')}</section>
 }
 
-function PathsTable({ rows, onSelect }: { rows: PerformancePathDiff[]; onSelect: (key: string) => void }) {
+function CostBars({ row, max }: { row: PerformancePathDiff; max: number }) {
+  return <span className="pd-cost-bars" aria-hidden="true">
+    <i className="baseline" style={{ width: `${row.baseline.meanNs / max * 100}%` }} />
+    <i className="candidate" style={{ width: `${row.candidate.meanNs / max * 100}%` }} />
+  </span>
+}
+
+function PathExplorer({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff[]; selectedKey: string | null; onSelect: (key: string) => void }) {
+  const [query, setQuery] = useState('')
+  const [sort, setSort] = useState<'impact' | 'cost' | 'name'>('impact')
+  const filtered = useMemo(() => {
+    const match = query.trim().toLowerCase()
+    const next = rows.filter((row) => match === '' || row.path.some((part) => part.toLowerCase().includes(match)))
+    next.sort((a, b) => {
+      if (sort === 'name') return a.path.join('/').localeCompare(b.path.join('/'))
+      if (sort === 'cost') return Math.max(b.baseline.meanNs, b.candidate.meanNs) - Math.max(a.baseline.meanNs, a.candidate.meanNs)
+      return Math.abs(b.absoluteChangeNs) - Math.abs(a.absoluteChangeNs)
+    })
+    return next
+  }, [rows, query, sort])
+  const max = Math.max(1, ...filtered.map((row) => Math.max(row.baseline.meanNs, row.candidate.meanNs)))
   return (
-    <section className="panel pd-table-panel">
-      <div className="pd-table-scroll">
-        <table className="data pd-table">
-          <thead><tr><th>path</th><th>evidence</th><th className="num">baseline</th><th className="num">candidate</th><th className="num">change</th><th className="num">95% CI</th><th className="num">p adj</th></tr></thead>
-          <tbody>{rows.slice(0, 2000).map((row) => (
-            <tr key={row.key} onClick={() => onSelect(row.key)}>
-              <td className="pd-path" style={{ paddingLeft: `${12 + row.depth * 12}px` }}>{row.path.join(' / ')}</td>
-              <td><Evidence row={row} /></td>
-              <td className="num mono-num">{formatNs(row.baseline.meanNs)}</td>
-              <td className="num mono-num">{formatNs(row.candidate.meanNs)}</td>
-              <td className={`num mono-num pd-direction ${row.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(row.relativeChange)}</td>
-              <td className="num mono-num">{interval(row)}</td>
-              <td className="num mono-num">{pValue(row.adjustedP)}</td>
-            </tr>
-          ))}</tbody>
-        </table>
+    <section className="panel pd-explorer">
+      <div className="pd-explorer-toolbar">
+        <div><span className="panel-title">path explorer</span><span className="faint"> {filtered.length} paths</span></div>
+        <input className="input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="filter paths" aria-label="filter paths" />
+        <span className="pd-sort">
+          {(['impact', 'cost', 'name'] as const).map((value) => <button type="button" className={`chip ${sort === value ? 'active' : ''}`} key={value} onClick={() => setSort(value)}>{value}</button>)}
+        </span>
       </div>
-      {rows.length > 2000 && <div className="pd-cap faint">showing 2,000 of {rows.length} paths</div>}
+      <div className="pd-path-cards">
+        {filtered.slice(0, 2000).map((row) => <button type="button" className={`pd-path-card${selectedKey === row.key ? ' selected' : ''}`} key={row.key} onClick={() => onSelect(row.key)}>
+          <span className="pd-path-card-top">
+            <strong>{row.path.at(-1)}</strong>
+            <span className={`pd-direction mono-num ${row.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(row.relativeChange)}</span>
+          </span>
+          <span className="pd-path-card-path faint" title={row.path.join(' / ')}>{row.path.slice(0, -1).join(' / ') || 'root'}</span>
+          <CostBars row={row} max={max} />
+          <span className="pd-path-card-values mono-num"><span>{formatNs(row.baseline.meanNs)}</span><span>→</span><span>{formatNs(row.candidate.meanNs)}</span><Evidence row={row} /></span>
+        </button>)}
+      </div>
+      {filtered.length > 2000 && <div className="pd-cap faint">showing 2,000 of {filtered.length} paths</div>}
     </section>
   )
 }
 
-function NodeHeatmap({ rows, instances, onSelect }: { rows: PerformancePathDiff[]; instances: string[]; onSelect: (key: string) => void }) {
+function NodeExplorer({ rows, instances, onSelect }: { rows: PerformancePathDiff[]; instances: string[]; onSelect: (key: string) => void }) {
+  const [query, setQuery] = useState('')
+  const root = rows.find((row) => row.depth === 0) ?? null
+  const match = query.trim().toLowerCase()
+  const visible = instances.filter((id) => match === '' || id.toLowerCase().includes(match))
   return (
-    <section className="panel pd-node-panel">
-      <div className="pd-node-grid" style={{ gridTemplateColumns: `minmax(180px, 1fr) repeat(${instances.length}, minmax(80px, 0.5fr))` }}>
-        <div className="pd-node-corner">path</div>
-        {instances.map((id) => <div className="pd-node-head" key={id}>{id}</div>)}
-        {rows.slice(0, 2000).map((row) => (
-          <div className="pd-node-row" key={row.key} style={{ display: 'contents' }}>
-            <button type="button" className="pd-node-path" onClick={() => onSelect(row.key)}>{row.path.join(' / ')}</button>
-            {instances.map((id) => {
-              const cell = row.instances.find((instance) => instance.instanceId === id)
-              const change = cell?.relativeChange ?? null
-              const strength = change === null ? 0 : Math.min(72, 16 + Math.abs(change) * 120)
-              return <button
-                type="button"
-                className={`pd-node-cell ${change === null ? 'missing' : change > 0 ? 'slower' : 'faster'}`}
-                style={change === null ? undefined : { background: `color-mix(in srgb, var(${change > 0 ? '--perf-regressed' : '--perf-improved'}) ${strength}%, transparent)` }}
-                key={id}
-                onClick={() => onSelect(row.key)}
-                title={`${id} · ${percent(change)}`}
-              >{percent(change)}</button>
-            })}
-          </div>
-        ))}
+    <section className="panel pd-node-explorer">
+      <div className="pd-explorer-toolbar">
+        <div><span className="panel-title">node explorer</span><span className="faint"> {visible.length} nodes</span></div>
+        <input className="input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="find a node" aria-label="find a node" />
+      </div>
+      <div className="pd-node-cards">
+        {visible.map((id) => {
+          const rootStats = root?.instances.find((instance) => instance.instanceId === id)
+          const changes = rows.flatMap((row) => {
+            const stats = row.instances.find((instance) => instance.instanceId === id)
+            if (stats?.baselineMeanNs === null || stats?.candidateMeanNs === null || stats === undefined) return []
+            return [{ row, delta: stats.candidateMeanNs - stats.baselineMeanNs, relative: stats.relativeChange }]
+          }).sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta)).slice(0, 4)
+          const state = rootStats?.baselineMeanNs === null ? 'added' : rootStats?.candidateMeanNs === null ? 'removed' : 'present'
+          return <article className="pd-node-card" key={id}>
+            <div className="pd-node-card-head">
+              <strong title={id}>{shortId(id)}</strong>
+              <span className="faint">{state === 'present' ? `${rootStats?.baselineSamples ?? 0} → ${rootStats?.candidateSamples ?? 0} samples` : state}</span>
+            </div>
+            <div className="pd-node-root">
+              <span>{rootStats?.baselineMeanNs === null || rootStats === undefined ? '—' : formatNs(rootStats.baselineMeanNs)}</span>
+              <span className="faint">→</span>
+              <span>{rootStats?.candidateMeanNs === null || rootStats === undefined ? '—' : formatNs(rootStats.candidateMeanNs)}</span>
+              <strong className={`pd-direction ${rootStats?.relativeChange !== null && (rootStats?.relativeChange ?? 0) > 0 ? 'slower' : 'faster'}`}>{percent(rootStats?.relativeChange ?? null)}</strong>
+            </div>
+            <div className="pd-node-changes">
+              {changes.length === 0 ? <span className="faint">no shared paths</span> : changes.map(({ row, delta, relative }) => <button type="button" key={row.key} onClick={() => onSelect(row.key)}>
+                <span title={row.path.join(' / ')}>{row.path.at(-1)}</span>
+                <span className={`mono-num pd-direction ${delta > 0 ? 'slower' : 'faster'}`}>{percent(relative)}</span>
+              </button>)}
+            </div>
+          </article>
+        })}
       </div>
     </section>
   )
@@ -331,40 +438,81 @@ function Ecdf({ baseline, candidate }: { baseline: number[]; candidate: number[]
   )
 }
 
-function PathDetails({ row, onClose }: { row: PerformancePathDiff; onClose: () => void }) {
+function MetricCard({ label, value, note, tone }: { label: string; value: string; note: string; tone?: 'faster' | 'slower' }) {
+  return <div className={`pd-metric-card${tone === undefined ? '' : ` ${tone}`}`}>
+    <span className="micro-label">{label}</span>
+    <strong className="mono-num">{value}</strong>
+    <span className="faint">{note}</span>
+  </div>
+}
+
+function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDiff; rows: PerformancePathDiff[]; onSelect: (key: string) => void; onClose: () => void }) {
+  const ancestors = row.path.slice(0, -1).map((_, index) => rows.find((candidate) =>
+    candidate.path.length === index + 1 && candidate.path.every((part, partIndex) => part === row.path[partIndex]),
+  )).filter((candidate): candidate is PerformancePathDiff => candidate !== undefined)
+  const children = rows.filter((candidate) =>
+    candidate.path.length === row.path.length + 1 && row.path.every((part, index) => candidate.path[index] === part),
+  ).sort((a, b) => Math.max(b.baseline.meanNs, b.candidate.meanNs) - Math.max(a.baseline.meanNs, a.candidate.meanNs))
+  const nodeChanges = row.instances
+    .filter((instance) => instance.baselineMeanNs !== null || instance.candidateMeanNs !== null)
+    .sort((a, b) => Math.abs(b.relativeChange ?? 0) - Math.abs(a.relativeChange ?? 0))
   return (
-    <aside className="panel pd-details">
-      <div className="panel-header">
-        <span className="panel-title">path detail</span>
+    <section className="panel pd-details">
+      <div className="pd-details-header">
+        <div>
+          <span className="micro-label">selected span</span>
+          <h2>{row.path.at(-1)}</h2>
+          <div className="pd-breadcrumb">{row.path.slice(0, -1).join(' / ') || 'root'}</div>
+        </div>
+        <Evidence row={row} />
         <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>×</button>
       </div>
       <div className="pd-details-body">
-        <div className="pd-breadcrumb">{row.path.join(' / ')}</div>
-        <Evidence row={row} />
-        <Ecdf baseline={row.baselineValuesNs} candidate={row.candidateValuesNs} />
-        <div className="pd-legend"><span className="baseline">baseline</span><span className="candidate">candidate</span></div>
-        <dl className="pd-detail-stats">
-          <dt>mean</dt><dd>{formatNs(row.baseline.meanNs)} → {formatNs(row.candidate.meanNs)}</dd>
-          <dt>median</dt><dd>{formatNs(row.baseline.medianNs)} → {formatNs(row.candidate.medianNs)}</dd>
-          <dt>p95</dt><dd>{formatNs(row.baseline.p95Ns)} → {formatNs(row.candidate.p95Ns)}</dd>
-          <dt>95% CI</dt><dd>{interval(row)}</dd>
-          <dt>p / adjusted</dt><dd>{pValue(row.rawP)} / {pValue(row.adjustedP)}</dd>
-          <dt>calls</dt><dd>{row.baselineCalls} → {row.candidateCalls}</dd>
-          <dt>coverage</dt><dd>{percent(row.baselineCoverage, false)} → {percent(row.candidateCoverage, false)}</dd>
-          <dt>errors</dt><dd>{row.baselineErrors} → {row.candidateErrors}</dd>
-          <dt>outliers</dt><dd>{row.baseline.outliers} → {row.candidate.outliers}</dd>
-        </dl>
-        <table className="data pd-instance-table">
-          <thead><tr><th>node</th><th className="num">baseline</th><th className="num">candidate</th><th className="num">change</th></tr></thead>
-          <tbody>{row.instances.map((instance) => <tr key={instance.instanceId}>
-            <td>{instance.instanceId}</td>
-            <td className="num mono-num">{instance.baselineMeanNs === null ? '—' : formatNs(instance.baselineMeanNs)}</td>
-            <td className="num mono-num">{instance.candidateMeanNs === null ? '—' : formatNs(instance.candidateMeanNs)}</td>
-            <td className="num mono-num">{percent(instance.relativeChange)}</td>
-          </tr>)}</tbody>
-        </table>
+        <div className="pd-metrics">
+          <MetricCard label="baseline mean" value={formatNs(row.baseline.meanNs)} note={`${row.baseline.samples} operations · p95 ${formatNs(row.baseline.p95Ns)}`} />
+          <MetricCard label="candidate mean" value={formatNs(row.candidate.meanNs)} note={`${row.candidate.samples} operations · p95 ${formatNs(row.candidate.p95Ns)}`} />
+          <MetricCard label="absolute change" value={`${row.absoluteChangeNs > 0 ? '+' : '−'}${formatNs(Math.abs(row.absoluteChangeNs))}`} note={`${percent(row.relativeChange)} relative`} tone={row.absoluteChangeNs > 0 ? 'slower' : 'faster'} />
+          <MetricCard label="confidence" value={interval(row)} note={`p ${pValue(row.rawP)} · adjusted ${pValue(row.adjustedP)}`} />
+        </div>
+        <div className="pd-sandwich">
+          <div className="pd-context-stack">
+            <span className="micro-label">callers</span>
+            {ancestors.length === 0 ? <span className="faint">root span</span> : ancestors.map((ancestor) => <button type="button" key={ancestor.key} onClick={() => onSelect(ancestor.key)}><span>{ancestor.path.at(-1)}</span><span>{percent(ancestor.relativeChange)}</span></button>)}
+          </div>
+          <div className="pd-context-current"><strong>{row.path.at(-1)}</strong><span>{formatNs(row.baseline.meanNs)} → {formatNs(row.candidate.meanNs)}</span></div>
+          <div className="pd-context-stack">
+            <span className="micro-label">callees</span>
+            {children.length === 0 ? <span className="faint">leaf span</span> : children.slice(0, 12).map((child) => <button type="button" key={child.key} onClick={() => onSelect(child.key)}><span>{child.path.at(-1)}</span><span>{percent(child.relativeChange)}</span></button>)}
+          </div>
+        </div>
+        <div className="pd-investigation-grid">
+          <div className="pd-investigation-card pd-distribution">
+            <div><span className="panel-title">operation distribution</span><span className="faint"> empirical cumulative distribution</span></div>
+            <Ecdf baseline={row.baselineValuesNs} candidate={row.candidateValuesNs} />
+            <div className="pd-legend"><span className="baseline">baseline</span><span className="candidate">candidate</span></div>
+          </div>
+          <div className="pd-investigation-card">
+            <span className="panel-title">behavior changes</span>
+            <dl className="pd-detail-stats">
+              <dt>median</dt><dd>{formatNs(row.baseline.medianNs)} → {formatNs(row.candidate.medianNs)}</dd>
+              <dt>MAD</dt><dd>{formatNs(row.baseline.madNs)} → {formatNs(row.candidate.madNs)}</dd>
+              <dt>calls</dt><dd>{row.baselineCalls} → {row.candidateCalls}</dd>
+              <dt>coverage</dt><dd>{percent(row.baselineCoverage, false)} → {percent(row.candidateCoverage, false)}</dd>
+              <dt>errors</dt><dd>{row.baselineErrors} → {row.candidateErrors}</dd>
+              <dt>outliers</dt><dd>{row.baseline.outliers} → {row.candidate.outliers}</dd>
+            </dl>
+          </div>
+          <div className="pd-investigation-card pd-node-impact">
+            <div><span className="panel-title">node impact</span><span className="faint"> {nodeChanges.length} nodes</span></div>
+            <div className="pd-node-impact-list">{nodeChanges.slice(0, 20).map((instance) => <div key={instance.instanceId}>
+              <span title={instance.instanceId}>{shortId(instance.instanceId)}</span>
+              <span className="faint mono-num">{instance.baselineMeanNs === null ? '—' : formatNs(instance.baselineMeanNs)} → {instance.candidateMeanNs === null ? '—' : formatNs(instance.candidateMeanNs)}</span>
+              <strong className={`pd-direction mono-num ${(instance.relativeChange ?? 0) > 0 ? 'slower' : 'faster'}`}>{percent(instance.relativeChange)}</strong>
+            </div>)}</div>
+          </div>
+        </div>
       </div>
-    </aside>
+    </section>
   )
 }
 
@@ -380,6 +528,7 @@ export default function PerformanceDiffPage({
   onRouteChange,
 }: PerformanceDiffPageProps) {
   const [candidateUpload, setCandidateUpload] = useState<PerformanceSource | null>(null)
+  const [sourcesExpanded, setSourcesExpanded] = useState(false)
   const baselineLive = useQuery({
     queryKey: ['performance-source', baselineQuery],
     queryFn: () => loadQuery(baselineQuery!),
@@ -416,6 +565,14 @@ export default function PerformanceDiffPage({
 
   return (
     <div className="pd-page">
+      {baselineModel !== null && candidateModel !== null && !sourcesExpanded ? (
+        <div className="panel pd-compare-bar">
+          <span className="pd-compare-side"><span className="micro-label">baseline</span><strong title={baseline?.label}>{baseline?.label}</strong></span>
+          <span className="pd-compare-arrow">→</span>
+          <span className="pd-compare-side"><span className="micro-label">candidate</span><strong title={candidate?.label}>{candidate?.label}</strong></span>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setSourcesExpanded(true)}>change inputs</button>
+        </div>
+      ) : <>
       <div className="pd-sources">
         <SourceCard
           side="baseline"
@@ -475,6 +632,12 @@ export default function PerformanceDiffPage({
           }}
         />
       </div>
+      {sourcesExpanded && baselineModel !== null && candidateModel !== null && (
+        <button type="button" className="btn btn-ghost btn-sm pd-inputs-done" onClick={() => setSourcesExpanded(false)}>
+          done changing inputs
+        </button>
+      )}
+      </>}
       {baselineModel === null || candidateModel === null ? (
         <div className="empty-state pd-empty">
           Choose a baseline and candidate. Either side can be a searched comparison or an export.
@@ -484,7 +647,7 @@ export default function PerformanceDiffPage({
       ) : analysis.error !== null ? (
         <div className="empty-state pd-empty pd-analysis-error">analysis failed: {analysis.error}</div>
       ) : analysis.result !== null ? (
-        <div className={`pd-workspace ${selected === null ? '' : 'with-details'}`}>
+        <div className="pd-workspace">
           <div className="pd-content">
             <div className="pd-controls">
               <span className="pd-view-tabs">
@@ -503,22 +666,20 @@ export default function PerformanceDiffPage({
             {view === 'overview' && (
               <>
                 {analysis.result.root !== null && <RootSummary row={analysis.result.root} diff={analysis.result} />}
-                <div className="pd-overview-grid">
-                  <ImpactTree rows={analysis.result.paths} onSelect={(key) => route({ selectedPath: key })} />
-                  <RankedChanges rows={analysis.result.paths} onSelect={(key) => route({ selectedPath: key })} />
-                </div>
+                <RankedChanges rows={analysis.result.paths} onSelect={(key) => route({ selectedPath: key })} />
+                <ImpactTree rows={analysis.result.paths} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />
               </>
             )}
-            {view === 'paths' && <PathsTable rows={analysis.result.paths} onSelect={(key) => route({ selectedPath: key })} />}
+            {view === 'paths' && <PathExplorer rows={analysis.result.paths} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />}
             {view === 'nodes' && (
-              <NodeHeatmap
+              <NodeExplorer
                 rows={analysis.result.paths}
                 instances={[...new Set([...analysis.result.baselineInstances, ...analysis.result.candidateInstances])]}
                 onSelect={(key) => route({ selectedPath: key })}
               />
             )}
           </div>
-          {selected !== null && <PathDetails row={selected} onClose={() => route({ selectedPath: null })} />}
+          {selected !== null && <PathDetails row={selected} rows={analysis.result.paths} onSelect={(key) => route({ selectedPath: key })} onClose={() => route({ selectedPath: null })} />}
         </div>
       ) : (
         <div className="empty-state pd-empty">no performance data</div>
