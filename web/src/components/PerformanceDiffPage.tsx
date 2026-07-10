@@ -8,6 +8,7 @@ import type {
   PerformanceSource,
   TraceModel,
 } from '../lib/model'
+import { colorIndexForService, instanceColorVar } from '../lib/model'
 import { importTraceExport } from '../lib/export'
 import { formatNs, shortId } from '../lib/format'
 import FlameTimeline from './FlameTimeline'
@@ -577,6 +578,58 @@ function Ecdf({ baseline, candidate }: { baseline: number[]; candidate: number[]
   )
 }
 
+function quantileValue(values: number[], percentile: number): number {
+  if (values.length === 0) return 0
+  const sorted = [...values].sort((a, b) => a - b)
+  const position = (sorted.length - 1) * percentile
+  const low = Math.floor(position)
+  const high = Math.ceil(position)
+  if (low === high) return sorted[low]
+  return sorted[low] + (sorted[high] - sorted[low]) * (position - low)
+}
+
+function NodeDistributionPlot({ instances }: { instances: PerformanceInstanceDiff[] }) {
+  const baseline = instances.flatMap((instance) => instance.baselineMeanNs === null ? [] : [{ instance, value: instance.baselineMeanNs }])
+  const candidate = instances.flatMap((instance) => instance.candidateMeanNs === null ? [] : [{ instance, value: instance.candidateMeanNs }])
+  const values = [...baseline, ...candidate].map((point) => point.value)
+  const max = Math.max(1, ...values)
+  const left = 78
+  const right = 700
+  const x = (value: number) => left + value / max * (right - left)
+  const rows = [
+    { label: 'baseline', points: baseline, y: 48, tone: 'baseline' },
+    { label: 'candidate', points: candidate, y: 108, tone: 'candidate' },
+  ] as const
+
+  return <svg className="pd-node-distribution" viewBox="0 0 720 145" role="img" aria-label="per-node mean duration distributions">
+    {[0, 0.5, 1].map((fraction) => <g key={fraction}>
+      <line className="grid" x1={x(max * fraction)} y1="18" x2={x(max * fraction)} y2="123" />
+      <text x={x(max * fraction)} y="140" textAnchor={fraction === 0 ? 'start' : fraction === 1 ? 'end' : 'middle'}>{formatNs(max * fraction)}</text>
+    </g>)}
+    {rows.map(({ label, points, y, tone }) => {
+      const rowValues = points.map((point) => point.value)
+      const q10 = quantileValue(rowValues, 0.1)
+      const q25 = quantileValue(rowValues, 0.25)
+      const median = quantileValue(rowValues, 0.5)
+      const q75 = quantileValue(rowValues, 0.75)
+      const q90 = quantileValue(rowValues, 0.9)
+      return <g key={label} className={tone}>
+        <text className="lane-label" x={left - 12} y={y + 4} textAnchor="end">{label}</text>
+        <line className="whisker" x1={x(q10)} y1={y} x2={x(q90)} y2={y} />
+        <rect className="band" x={x(q25)} y={y - 10} width={Math.max(1, x(q75) - x(q25))} height="20" rx="4" />
+        <line className="median" x1={x(median)} y1={y - 13} x2={x(median)} y2={y + 13} />
+        {points.map(({ instance, value }) => <circle
+          key={instance.instanceId}
+          cx={x(value)}
+          cy={y + colorIndexForService(instance.instanceId) % 13 - 6}
+          r="3.5"
+          style={{ fill: instanceColorVar(colorIndexForService(instance.instanceId)) }}
+        ><title>{instance.instanceId}: {formatNs(value)}</title></circle>)}
+      </g>
+    })}
+  </svg>
+}
+
 function MetricCard({ label, value, note, tone }: { label: string; value: string; note: string; tone?: 'faster' | 'slower' }) {
   return <div className={`pd-metric-card${tone === undefined ? '' : ` ${tone}`}`}>
     <span className="micro-label">{label}</span>
@@ -604,13 +657,14 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
     .filter((instance) => instance.candidateMeanNs !== null)
     .sort((a, b) => (b.candidateMeanNs ?? 0) - (a.candidateMeanNs ?? 0))
     .slice(0, 5)
+  const childMax = Math.max(1, ...children.map((child) => Math.max(child.baseline.meanNs, child.candidate.meanNs)))
   return (
     <section className="panel pd-details">
       <div className="pd-details-header">
         <div>
           <span className="micro-label">selected span</span>
           <h2>{row.path.at(-1)}</h2>
-          <div className="pd-breadcrumb">{row.path.slice(0, -1).join(' / ') || 'root'}</div>
+          <div className="faint">{row.path.length === 1 ? 'root operation' : `${row.path.length - 1} callers · ${children.length} direct callees`}</div>
         </div>
         <Evidence row={row} />
         <button type="button" className="btn btn-ghost btn-sm" onClick={onClose}>×</button>
@@ -622,45 +676,58 @@ function PathDetails({ row, rows, onSelect, onClose }: { row: PerformancePathDif
           <MetricCard label="absolute change" value={`${row.absoluteChangeNs > 0 ? '+' : '−'}${formatNs(Math.abs(row.absoluteChangeNs))}`} note={`${percent(row.relativeChange)} relative`} tone={row.absoluteChangeNs > 0 ? 'slower' : 'faster'} />
           <MetricCard label="confidence" value={interval(row)} note={`p ${pValue(row.rawP)} · adjusted ${pValue(row.adjustedP)} · Cliff δ ${row.effectSize?.toFixed(2) ?? '—'}`} />
         </div>
-        <div className="pd-sandwich">
-          <div className="pd-context-stack">
-            <span className="micro-label">callers</span>
-            {ancestors.length === 0 ? <span className="faint">root span</span> : ancestors.map((ancestor) => <button type="button" key={ancestor.key} onClick={() => onSelect(ancestor.key)}><span>{ancestor.path.at(-1)}</span><span>{percent(ancestor.relativeChange)}</span></button>)}
+        <nav className="pd-call-path" aria-label="call path">
+          <span className="micro-label">call path</span>
+          <div>{ancestors.map((ancestor) => <span key={ancestor.key}>
+            <button type="button" onClick={() => onSelect(ancestor.key)}>{ancestor.path.at(-1)}</button><i>/</i>
+          </span>)}<strong>{row.path.at(-1)}</strong></div>
+        </nav>
+        <section className="pd-callees">
+          <div className="pd-section-heading"><span className="panel-title">direct callees</span><span className="faint">ranked by aggregate cost</span></div>
+          {children.length === 0 ? <div className="faint pd-leaf">leaf span</div> : <div className="pd-callee-list">{children.slice(0, 12).map((child) => <button type="button" key={child.key} onClick={() => onSelect(child.key)}>
+            <span className="pd-callee-name" title={child.path.join(' / ')}>{child.path.at(-1)}</span>
+            <CostBars row={child} max={childMax} />
+            <span className="mono-num">{formatNs(child.baseline.meanNs)} → {formatNs(child.candidate.meanNs)}</span>
+            <strong className={`mono-num pd-direction ${child.absoluteChangeNs > 0 ? 'slower' : 'faster'}`}>{percent(child.relativeChange)}</strong>
+          </button>)}</div>}
+        </section>
+        <div className="pd-analysis-layout">
+          <div className="pd-analysis-plots">
+            <section className="pd-investigation-card">
+              <div className="pd-section-heading"><span className="panel-title">node distribution</span><span className="faint">means · band = middle 50% · whisker = 10–90%</span></div>
+              <NodeDistributionPlot instances={row.instances} />
+            </section>
+            <section className="pd-investigation-card pd-distribution">
+              <div className="pd-section-heading"><span className="panel-title">operation distribution</span><span className="faint">empirical cumulative distribution</span></div>
+              <Ecdf baseline={row.baselineValuesNs} candidate={row.candidateValuesNs} />
+              <div className="pd-legend"><span className="baseline">baseline</span><span className="candidate">candidate</span></div>
+            </section>
           </div>
-          <div className="pd-context-current"><strong>{row.path.at(-1)}</strong><span>{formatNs(row.baseline.meanNs)} → {formatNs(row.candidate.meanNs)}</span></div>
-          <div className="pd-context-stack">
-            <span className="micro-label">callees</span>
-            {children.length === 0 ? <span className="faint">leaf span</span> : children.slice(0, 12).map((child) => <button type="button" key={child.key} onClick={() => onSelect(child.key)}><span>{child.path.at(-1)}</span><span>{percent(child.relativeChange)}</span></button>)}
-          </div>
-        </div>
-        <div className="pd-investigation-grid">
-          <div className="pd-investigation-card pd-distribution">
-            <div><span className="panel-title">operation distribution</span><span className="faint"> empirical cumulative distribution</span></div>
-            <Ecdf baseline={row.baselineValuesNs} candidate={row.candidateValuesNs} />
-            <div className="pd-legend"><span className="baseline">baseline</span><span className="candidate">candidate</span></div>
-          </div>
-          <div className="pd-investigation-card">
-            <span className="panel-title">behavior changes</span>
-            <dl className="pd-detail-stats">
-              <dt>median</dt><dd>{formatNs(row.baseline.medianNs)} → {formatNs(row.candidate.medianNs)}</dd>
-              <dt>MAD</dt><dd>{formatNs(row.baseline.madNs)} → {formatNs(row.candidate.madNs)}</dd>
-              <dt>calls</dt><dd>{row.baselineCalls} → {row.candidateCalls}</dd>
-              <dt>coverage</dt><dd>{percent(row.baselineCoverage, false)} → {percent(row.candidateCoverage, false)}</dd>
-              <dt>errors</dt><dd>{row.baselineErrors} → {row.candidateErrors}</dd>
-              <dt>outliers</dt><dd>{row.baseline.outliers} → {row.candidate.outliers}</dd>
-            </dl>
-          </div>
-          <div className="pd-investigation-card pd-node-impact">
-            <div><span className="panel-title">{pairedNodes.length > 0 ? 'node impact' : 'slowest nodes'}</span><span className="faint"> {nodeChanges.length} observations</span></div>
-            {pairedNodes.length > 0 ? <div className="pd-node-impact-list">{pairedNodes.slice(0, 20).map((instance) => <div key={instance.instanceId}>
-              <span title={instance.instanceId}>{shortId(instance.instanceId)}</span>
-              <span className="faint mono-num">{formatNs(instance.baselineMeanNs ?? 0)} → {formatNs(instance.candidateMeanNs ?? 0)}</span>
-              <strong className={`pd-direction mono-num ${(instance.relativeChange ?? 0) > 0 ? 'slower' : 'faster'}`}>{percent(instance.relativeChange)}</strong>
-            </div>)}</div> : <div className="pd-unpaired-impact">
-              <div><span className="micro-label">baseline</span>{slowestBaseline.map((instance) => <span key={instance.instanceId}><span title={instance.instanceId}>{shortId(instance.instanceId)}</span><strong>{formatNs(instance.baselineMeanNs ?? 0)}</strong></span>)}</div>
-              <div><span className="micro-label">candidate</span>{slowestCandidate.map((instance) => <span key={instance.instanceId}><span title={instance.instanceId}>{shortId(instance.instanceId)}</span><strong>{formatNs(instance.candidateMeanNs ?? 0)}</strong></span>)}</div>
-            </div>}
-          </div>
+          <aside className="pd-analysis-sidebar">
+            <section className="pd-investigation-card">
+              <span className="panel-title">behavior changes</span>
+              <dl className="pd-detail-stats">
+                <dt>median</dt><dd>{formatNs(row.baseline.medianNs)} → {formatNs(row.candidate.medianNs)}</dd>
+                <dt>MAD</dt><dd>{formatNs(row.baseline.madNs)} → {formatNs(row.candidate.madNs)}</dd>
+                <dt>calls</dt><dd>{row.baselineCalls} → {row.candidateCalls}</dd>
+                <dt>coverage</dt><dd>{percent(row.baselineCoverage, false)} → {percent(row.candidateCoverage, false)}</dd>
+                <dt>errors</dt><dd>{row.baselineErrors} → {row.candidateErrors}</dd>
+                <dt>outliers</dt><dd>{row.baseline.outliers} → {row.candidate.outliers}</dd>
+              </dl>
+            </section>
+            <section className="pd-investigation-card pd-node-impact">
+              <div className="pd-section-heading"><span className="panel-title">{pairedNodes.length > 0 ? 'largest node shifts' : 'slowest nodes'}</span><span className="faint">{nodeChanges.length} observations</span></div>
+              {pairedNodes.length > 0 ? <div className="pd-node-impact-list">{pairedNodes.slice(0, 12).map((instance) => <div key={instance.instanceId}>
+                <i style={{ background: instanceColorVar(colorIndexForService(instance.instanceId)) }} />
+                <span title={instance.instanceId}>{shortId(instance.instanceId)}</span>
+                <span className="faint mono-num">{formatNs(instance.baselineMeanNs ?? 0)} → {formatNs(instance.candidateMeanNs ?? 0)}</span>
+                <strong className={`pd-direction mono-num ${(instance.relativeChange ?? 0) > 0 ? 'slower' : 'faster'}`}>{percent(instance.relativeChange)}</strong>
+              </div>)}</div> : <div className="pd-unpaired-impact">
+                <div><span className="micro-label">baseline</span>{slowestBaseline.map((instance) => <span key={instance.instanceId}><span title={instance.instanceId}>{shortId(instance.instanceId)}</span><strong>{formatNs(instance.baselineMeanNs ?? 0)}</strong></span>)}</div>
+                <div><span className="micro-label">candidate</span>{slowestCandidate.map((instance) => <span key={instance.instanceId}><span title={instance.instanceId}>{shortId(instance.instanceId)}</span><strong>{formatNs(instance.candidateMeanNs ?? 0)}</strong></span>)}</div>
+              </div>}
+            </section>
+          </aside>
         </div>
       </div>
     </section>
