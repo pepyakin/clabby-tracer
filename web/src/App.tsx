@@ -9,6 +9,7 @@ import EventsView from './components/EventsView'
 import SpanStats from './components/SpanStats'
 import HeatMap from './components/HeatMap'
 import FlameGraph from './components/FlameGraph'
+import PerformanceDiffPage from './components/PerformanceDiffPage'
 import SearchPanel from './components/SearchPanel'
 import SpanDetails from './components/SpanDetails'
 import TraceList from './components/TraceList'
@@ -18,6 +19,8 @@ import {
   isFilterConfigured,
   type EventSummary,
   type FilterState,
+  type PerformanceDiffView,
+  type PerformanceSource,
   type RangeSelection,
   type SearchTarget,
   type SpanEvent,
@@ -34,9 +37,32 @@ type Route =
   | { view: 'search' }
   | { view: 'trace'; traceId: string }
   | { view: 'compare'; query: string }
+  | {
+      view: 'diff'
+      baselineQuery: string | null
+      candidateQuery: string | null
+      threshold: number
+      diffView: PerformanceDiffView
+      selectedPath: string | null
+    }
 
 function parseHash(): Route {
   const hash = window.location.hash
+  const dm = /^#\/compare\/diff(?:\?(.*))?$/.exec(hash)
+  if (dm) {
+    const params = new URLSearchParams(dm[1] ?? '')
+    const threshold = Number(params.get('threshold') ?? '0.02')
+    const rawView = params.get('view')
+    const diffView: PerformanceDiffView = rawView === 'paths' || rawView === 'nodes' ? rawView : 'overview'
+    return {
+      view: 'diff',
+      baselineQuery: params.get('baseline'),
+      candidateQuery: params.get('candidate'),
+      threshold: Number.isFinite(threshold) && threshold > 0 ? threshold : 0.02,
+      diffView,
+      selectedPath: params.get('path'),
+    }
+  }
   const tm = /^#\/trace\/([0-9a-fA-F]+)/.exec(hash)
   if (tm) return { view: 'trace', traceId: tm[1].toLowerCase() }
   const cm = /^#\/compare(?:\?(.*))?$/.exec(hash)
@@ -52,12 +78,26 @@ function useRoute(): [Route, (r: Route) => void] {
     return () => window.removeEventListener('hashchange', onHash)
   }, [])
   const navigate = useCallback((r: Route) => {
-    window.location.hash =
-      r.view === 'trace'
-        ? `/trace/${r.traceId}`
-        : r.view === 'compare'
-          ? `/compare?${r.query}`
-          : '/search'
+    if (r.view === 'trace') {
+      window.location.hash = `/trace/${r.traceId}`
+      return
+    }
+    if (r.view === 'compare') {
+      window.location.hash = `/compare?${r.query}`
+      return
+    }
+    if (r.view === 'diff') {
+      const params = new URLSearchParams()
+      if (r.baselineQuery !== null) params.set('baseline', r.baselineQuery)
+      if (r.candidateQuery !== null) params.set('candidate', r.candidateQuery)
+      if (r.threshold !== 0.02) params.set('threshold', String(r.threshold))
+      if (r.diffView !== 'overview') params.set('view', r.diffView)
+      if (r.selectedPath !== null) params.set('path', r.selectedPath)
+      const query = params.toString()
+      window.location.hash = `/compare/diff${query === '' ? '' : `?${query}`}`
+      return
+    }
+    window.location.hash = '/search'
   }, [])
   return [route, navigate]
 }
@@ -70,9 +110,38 @@ type Theme = 'dark' | 'light'
 // TEMPO_URL) serves it in production; in dev the Vite server proxies it to
 // `bun run dev:api`. There is no in-app endpoint setting.
 const API_BASE = '/api/v1'
+const BASELINE_STORAGE_KEY = 'tracer.performance-baseline.v1'
+
+function storedBaseline(): PerformanceSource | null {
+  try {
+    const value = sessionStorage.getItem(BASELINE_STORAGE_KEY)
+    if (value === null) return null
+    const parsed = JSON.parse(value) as { query?: unknown; label?: unknown }
+    if (typeof parsed.query !== 'string' || typeof parsed.label !== 'string') return null
+    return { kind: 'query', query: parsed.query, label: parsed.label }
+  } catch {
+    return null
+  }
+}
+
+function compareLabel(query: string): string {
+  const params = new URLSearchParams(query)
+  const name = params.get('name') || 'comparison'
+  const attr = params.getAll('attr')[0]
+  return attr === undefined ? name : `${name} · ${attr}`
+}
 
 export default function App() {
   const [route, navigate] = useRoute()
+  const [capturedBaseline, setCapturedBaseline] = useState<PerformanceSource | null>(storedBaseline)
+  const captureBaseline = useCallback((source: PerformanceSource | null) => {
+    setCapturedBaseline(source)
+    if (source?.kind === 'query') {
+      sessionStorage.setItem(BASELINE_STORAGE_KEY, JSON.stringify({ query: source.query, label: source.label }))
+    } else {
+      sessionStorage.removeItem(BASELINE_STORAGE_KEY)
+    }
+  }, [])
 
   // The theme defaults to the OS preference and tracks it live. The toolbar
   // toggle is an in-memory override only — never persisted, and reset by the
@@ -399,9 +468,37 @@ export default function App() {
           </div>
         )}
 
+        {route.view === 'diff' && (
+          <div className="app-tracebar">
+            <span className="app-traceid" title="baseline versus candidate performance">
+              performance diff
+            </span>
+          </div>
+        )}
+
         <div className="app-topbar-spacer" />
 
         <div className="app-topbar-end">
+          {capturedBaseline !== null && (
+            <span className="app-baseline chip" title={capturedBaseline.label}>
+              baseline: {capturedBaseline.label}
+              <button type="button" onClick={() => captureBaseline(null)} aria-label="clear baseline">×</button>
+            </span>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-sm"
+            onClick={() => navigate({
+              view: 'diff',
+              baselineQuery: capturedBaseline?.kind === 'query' ? capturedBaseline.query : null,
+              candidateQuery: route.view === 'compare' ? route.query : null,
+              threshold: 0.02,
+              diffView: 'overview',
+              selectedPath: null,
+            })}
+          >
+            performance diff
+          </button>
           <span
             className={`app-conn ${connected.data ? 'ok' : 'down'}`}
             title={connected.data ? 'connected to Tempo' : 'Tempo unreachable'}
@@ -449,6 +546,27 @@ export default function App() {
             refreshSec={refreshSec}
             onRefreshSecChange={setRefreshSec}
             onRefresh={onRefresh}
+          />
+        </main>
+      ) : route.view === 'diff' ? (
+        <main className="app-main app-diff view-fade" key="performance-diff">
+          <PerformanceDiffPage
+            baselineQuery={route.baselineQuery}
+            candidateQuery={route.candidateQuery}
+            capturedBaseline={capturedBaseline}
+            threshold={route.threshold}
+            view={route.diffView}
+            selectedPath={route.selectedPath}
+            loadQuery={(query) => client.compareByQuery(query)}
+            onCaptureBaseline={captureBaseline}
+            onRouteChange={(next) => navigate({
+              view: 'diff',
+              baselineQuery: next.baselineQuery,
+              candidateQuery: next.candidateQuery,
+              threshold: next.threshold,
+              diffView: next.view,
+              selectedPath: next.selectedPath,
+            })}
           />
         </main>
       ) : (
@@ -499,6 +617,35 @@ export default function App() {
                     heatmap
                   </button>
                 </div>
+                {route.view === 'compare' && (
+                  <span className="app-compare-actions">
+                    <button
+                      type="button"
+                      className="btn btn-sm"
+                      onClick={() => captureBaseline({
+                        kind: 'query',
+                        query: route.query,
+                        label: compareLabel(route.query),
+                      })}
+                    >
+                      set baseline
+                    </button>
+                    <button
+                      type="button"
+                      className="btn btn-primary btn-sm"
+                      onClick={() => navigate({
+                        view: 'diff',
+                        baselineQuery: capturedBaseline?.kind === 'query' ? capturedBaseline.query : null,
+                        candidateQuery: route.query,
+                        threshold: 0.02,
+                        diffView: 'overview',
+                        selectedPath: null,
+                      })}
+                    >
+                      compare performance
+                    </button>
+                  </span>
+                )}
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm app-export"

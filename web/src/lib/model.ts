@@ -242,6 +242,26 @@ export interface PerformanceDiffProps {
   onSwap: () => void
 }
 
+export type PerformanceDiffView = 'overview' | 'paths' | 'nodes'
+
+export interface PerformanceDiffPageProps {
+  baselineQuery: string | null
+  candidateQuery: string | null
+  capturedBaseline: PerformanceSource | null
+  threshold: number
+  view: PerformanceDiffView
+  selectedPath: string | null
+  loadQuery: (query: string) => Promise<TraceModel>
+  onCaptureBaseline: (source: PerformanceSource | null) => void
+  onRouteChange: (next: {
+    baselineQuery: string | null
+    candidateQuery: string | null
+    threshold: number
+    view: PerformanceDiffView
+    selectedPath: string | null
+  }) => void
+}
+
 // ----------------------------------------------------- aggregated flame --
 
 /**

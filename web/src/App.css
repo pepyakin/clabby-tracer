@@ -60,6 +60,21 @@
   align-items: center;
   gap: 4px;
 }
+.app-baseline {
+  max-width: 260px;
+  display: inline-flex;
+  gap: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.app-baseline button {
+  border: 0;
+  padding: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
 .app-conn {
   padding: 0 8px;
   font-size: var(--font-size-sm);
@@ -106,6 +121,7 @@
   min-width: 0;
   overflow: auto;
 }
+.app-diff { overflow: hidden; }
 
 /* ----------------------------------------------------------------- trace -- */
 
@@ -127,6 +143,7 @@
   align-items: center;
   gap: 4px;
 }
+.app-compare-actions { display: flex; gap: 6px; }
 .app-mode-label {
   margin: 0 4px 0 0;
 }
