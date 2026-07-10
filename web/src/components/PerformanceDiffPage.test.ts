@@ -58,4 +58,10 @@ describe('flamegraph frame CSS', () => {
     expect(frameRule).toContain('box-sizing: border-box')
     expect(frameRule).toContain('min-width: 0')
   })
+
+  test('does not widen subpixel frames into their neighbors', async () => {
+    const component = await Bun.file(`${import.meta.dir}/PerformanceDiffPage.tsx`).text()
+
+    expect(component).not.toContain('width: `max(1px, calc(${cell.width}% - 2px))`')
+  })
 })

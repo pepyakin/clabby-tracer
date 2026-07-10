@@ -279,8 +279,7 @@ function ImpactTree({ rows, selectedKey, onSelect }: { rows: PerformancePathDiff
               className={`pd-frame pd-${cell.row.evidence}${selectedKey === cell.row.key ? ' selected' : ''}${matching ? ' matching' : ''}${dimmed ? ' dimmed' : ''}`}
               style={{
                 left: `calc(${cell.left}% + 1px)`,
-                width: `max(1px, calc(${cell.width}% - 2px))`,
-                maxWidth: `max(0px, calc(${100 - cell.left}% - 2px))`,
+                width: `max(0px, calc(${cell.width}% - 2px))`,
                 top: `${cell.depth * 20 + 2}px`,
                 background: frameBackground(cell.row),
               }}
