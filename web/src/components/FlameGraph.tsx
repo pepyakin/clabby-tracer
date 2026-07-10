@@ -8,11 +8,10 @@
  *    proportional to that instance's mean duration relative to the node's
  *    mean-sum.
  *
- * Rendering is devicePixelRatio-aware and driven by a single
- * requestAnimationFrame scheduler (no rAF loop while idle). Colors are read
- * once per theme via getComputedStyle and invalidated by a MutationObserver
- * watching <html data-theme>. Hit-testing uses rect arrays bucketed by row,
- * so mousemove never scans every span.
+ * Rendering is devicePixelRatio-aware. Instance lanes use lazy native-resolution
+ * canvases; merged mode and the overview share the parent repaint scheduler.
+ * Colors come from the resolved theme, and hit-testing uses rect arrays bucketed
+ * by row so mousemove never scans every span.
  */
 import {
   useCallback,
@@ -25,7 +24,7 @@ import {
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react'
-import { fitCanvasBackingStore } from '../lib/canvas'
+import { fitCanvasBackingStore, nativeCanvasSize, splitCanvasRows } from '../lib/canvas'
 import { clamp, formatClock, formatNs } from '../lib/format'
 import {
   instanceColorVar,
@@ -180,13 +179,6 @@ interface MergedLayout {
 interface LaneSpan {
   span: SpanNode
   depth: number
-}
-
-interface Lane {
-  inst: Instance
-  spans: LaneSpan[]
-  startRow: number
-  rowCount: number
 }
 
 /**
@@ -417,6 +409,389 @@ function pathRoundRect(
   ctx.closePath()
 }
 
+interface FlameLaneProps {
+  lane: ActiveLane
+  width: number
+  rangeLo: number
+  rangeHi: number
+  view: View | null
+  selectedSpanId: string | null
+  showEvents: boolean
+  search: string
+  selfTime: boolean
+  selfTimes: Map<string, number>
+  scrollRoot: HTMLElement | null
+  paintVersion: number
+  onHover: (hit: HitRect, clientX: number, clientY: number) => void
+  onLeave: () => void
+  onPick: (hit: HitRect | null) => void
+  onFocus: (name: string | null) => void
+  onPanStart: (canvas: HTMLCanvasElement, clientX: number) => void
+}
+
+interface FlameLaneTileProps extends Omit<FlameLaneProps, 'scrollRoot'> {
+  startRow: number
+  rowCount: number
+  last: boolean
+}
+
+function FlameLaneTile(props: FlameLaneTileProps) {
+  const {
+    lane,
+    width,
+    rangeLo,
+    rangeHi,
+    view,
+    selectedSpanId,
+    showEvents,
+    search,
+    selfTime,
+    selfTimes,
+    paintVersion,
+    startRow,
+    rowCount,
+    last,
+    onHover,
+    onLeave,
+    onPick,
+    onFocus,
+    onPanStart,
+  } = props
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const hitRef = useRef<Array<HitRect[] | undefined>>([])
+  const eventHitRef = useRef<Array<HitRect[] | undefined>>([])
+  const cssHeight = rowCount * ROW_H + (last ? LANE_GAP_ROWS * ROW_H : 0)
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current
+    if (!canvas || width <= 0) return
+    const ctx = canvas.getContext('2d')
+    if (!ctx) return
+    const theme = resolveTheme()
+    const dpr = window.devicePixelRatio || 1
+    const size = nativeCanvasSize(width, cssHeight, dpr)
+    if (canvas.width !== size.width || canvas.height !== size.height) {
+      canvas.width = size.width
+      canvas.height = size.height
+    }
+    canvas.style.width = `${width}px`
+    canvas.style.height = `${cssHeight}px`
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0)
+    ctx.fillStyle = theme.flameBg
+    ctx.fillRect(0, 0, width, cssHeight)
+    ctx.textBaseline = 'middle'
+    ctx.textAlign = 'left'
+    ctx.lineWidth = 1
+    ctx.font = theme.font
+    theme.charW = ctx.measureText('0').width || 7
+    ctx.font = theme.fontSmall
+    theme.charWSmall = ctx.measureText('0').width || 6
+
+    const rangeSpan = Math.max(1, rangeHi - rangeLo)
+    const minWin = Math.min(MIN_WINDOW_NS, rangeSpan)
+    const win = view ? clamp(view.t1 - view.t0, minWin, rangeSpan) : rangeSpan
+    const t0 = view ? clamp(view.t0, rangeLo, rangeHi - win) : rangeLo
+    const t1 = t0 + win
+    const plotW = Math.max(1, width - GUTTER)
+    const toX = (time: number) => GUTTER + (time - t0) * (plotW / win)
+
+    const step = niceStep((win * 90) / plotW)
+    for (let time = Math.ceil(t0 / step) * step; time <= t1 + step * 1e-6; time += step) {
+      const x = Math.round(toX(time)) + 0.5
+      ctx.strokeStyle = theme.flameGrid
+      ctx.beginPath()
+      ctx.moveTo(x, 0)
+      ctx.lineTo(x, cssHeight)
+      ctx.stroke()
+    }
+    ctx.strokeStyle = theme.border
+    ctx.beginPath()
+    ctx.moveTo(GUTTER - 0.5, 0)
+    ctx.lineTo(GUTTER - 0.5, cssHeight)
+    ctx.stroke()
+
+    const color = instanceColor(theme, lane.inst.colorIndex)
+    ctx.fillStyle = color.base
+    ctx.fillRect(0, 2, 3, Math.max(cssHeight - (last ? ROW_H : 0) - 4, 1))
+    if (startRow === 0) {
+      ctx.font = theme.font
+      ctx.fillStyle = theme.textMuted
+      ctx.fillText(
+        ellipsize(lane.inst.serviceName, GUTTER - 18, theme.charW || 7),
+        10,
+        ROW_H / 2,
+      )
+      if (lane.maxDepth > 0) {
+        ctx.font = theme.fontSmall
+        ctx.fillStyle = theme.textFaint
+        ctx.fillText(
+          ellipsize(`${lane.inst.spanCount} spans`, GUTTER - 18, theme.charWSmall || 6),
+          10,
+          ROW_H + ROW_H / 2,
+        )
+      }
+    }
+    if (last) {
+      ctx.strokeStyle = theme.flameGrid
+      ctx.beginPath()
+      ctx.moveTo(0, rowCount * ROW_H + ROW_H / 2 + 0.5)
+      ctx.lineTo(width, rowCount * ROW_H + ROW_H / 2 + 0.5)
+      ctx.stroke()
+    }
+
+    const buckets: Array<HitRect[] | undefined> = new Array(rowCount)
+    const eventBuckets: Array<HitRect[] | undefined> = new Array(rowCount)
+    const tileEnd = startRow + rowCount
+    const tileSpans = lane.spans.filter(({ depth }) => depth >= startRow && depth < tileEnd)
+    const accRgb = parseRgb(theme.accent) ?? [123, 135, 247]
+    const selfOverlay = `rgba(${accRgb[0]}, ${accRgb[1]}, ${accRgb[2]}, 0.6)`
+    const bgRgb = parseRgb(theme.flameBg) ?? [18, 18, 23]
+    const coverScrim = `rgba(${bgRgb[0]}, ${bgRgb[1]}, ${bgRgb[2]}, 0.6)`
+    ctx.font = theme.font
+
+    for (const { span, depth } of tileSpans) {
+      const sx0 = toX(span.startNs)
+      const sx1 = toX(span.startNs + span.durationNs)
+      if (sx1 < GUTTER || sx0 > width) continue
+      const x0 = Math.max(sx0, GUTTER)
+      const x1 = Math.min(sx1, width)
+      const barWidth = Math.max(x1 - x0 - CELL_GAP, 1)
+      const localRow = depth - startRow
+      const y = localRow * ROW_H + BAR_PAD_Y
+      const isError = span.status === 'error' || span.level === 'error'
+      ctx.globalAlpha = search !== '' && !span.name.toLowerCase().includes(search) ? 0.16 : 1
+      const selfNs = selfTimes.get(span.spanId) ?? 0
+
+      pathRoundRect(ctx, x0, y, barWidth, BAR_H, CELL_RADIUS)
+      ctx.fillStyle = color.fills[Math.min(depth, SHADE_LEVELS - 1)]
+      ctx.fill()
+      if (barWidth >= 3) {
+        ctx.strokeStyle = color.border
+        ctx.stroke()
+      }
+      if (selfTime) {
+        const end = span.startNs + span.durationNs
+        const segment = (from: number, to: number, style: string) => {
+          const left = Math.max(toX(from), x0)
+          const right = Math.min(toX(to), x0 + barWidth)
+          if (right - left > 0.5) {
+            ctx.fillStyle = style
+            ctx.fillRect(left, y, right - left, BAR_H)
+          }
+        }
+        if (span.children.length === 0) {
+          segment(span.startNs, end, selfOverlay)
+        } else {
+          const intervals = span.children
+            .map((child) => [child.startNs, child.startNs + child.durationNs] as [number, number])
+            .sort((a, b) => a[0] - b[0])
+          const covered: [number, number][] = []
+          for (const interval of intervals) {
+            const previous = covered[covered.length - 1]
+            if (previous && interval[0] <= previous[1]) {
+              previous[1] = Math.max(previous[1], interval[1])
+            }
+            else covered.push([...interval])
+          }
+          let cursor = span.startNs
+          for (const [from, to] of covered) {
+            if (from > cursor) segment(cursor, from, selfOverlay)
+            segment(Math.max(from, span.startNs), to, coverScrim)
+            cursor = Math.max(cursor, to)
+          }
+          if (cursor < end) segment(cursor, end, selfOverlay)
+        }
+      }
+      if (isError) {
+        ctx.fillStyle = theme.error
+        ctx.fillRect(x0 + CELL_RADIUS, y + BAR_H - 2, Math.max(barWidth - 2 * CELL_RADIUS, 1), 2)
+      }
+      if (span.spanId === selectedSpanId) {
+        pathRoundRect(ctx, x0 + 1, y + 1, barWidth - 2, BAR_H - 2, CELL_RADIUS - 1)
+        ctx.strokeStyle = theme.accent
+        ctx.lineWidth = 2
+        ctx.stroke()
+        ctx.lineWidth = 1
+      }
+      if (barWidth > LABEL_MIN_W) {
+        ctx.fillStyle = theme.bg
+        ctx.fillText(
+          ellipsize(span.name, barWidth - 2 * CELL_PAD_X, theme.charW || 7),
+          x0 + CELL_PAD_X,
+          y + BAR_H / 2 + 0.5,
+        )
+      }
+      ;(buckets[localRow] ??= []).push({
+        kind: 'span',
+        x0,
+        x1,
+        name: span.name,
+        instanceId: lane.inst.id,
+        durNs: span.durationNs,
+        selfNs,
+        startNs: span.startNs,
+        count: 1,
+        level: span.level,
+        error: isError,
+        eventCount: span.events.length,
+        selectId: span.spanId,
+      })
+    }
+    ctx.globalAlpha = 1
+
+    if (showEvents) {
+      for (const { span, depth } of tileSpans) {
+        if (span.events.length === 0) continue
+        const localRow = depth - startRow
+        const cy = localRow * ROW_H + BAR_PAD_Y + BAR_H / 2
+        for (const event of span.events) {
+          const x = toX(event.timeNs)
+          if (x < GUTTER || x > width) continue
+          ctx.beginPath()
+          ctx.moveTo(x, cy - 4.5)
+          ctx.lineTo(x + 4.5, cy)
+          ctx.lineTo(x, cy + 4.5)
+          ctx.lineTo(x - 4.5, cy)
+          ctx.closePath()
+          ctx.fillStyle = theme.levels[event.level ?? 'trace']
+          ctx.fill()
+          ctx.strokeStyle = theme.bg
+          ctx.stroke()
+          ;(eventBuckets[localRow] ??= []).push({
+            kind: 'event',
+            x0: x - 5,
+            x1: x + 5,
+            name: event.name,
+            instanceId: lane.inst.id,
+            durNs: -1,
+            selfNs: -1,
+            startNs: event.timeNs,
+            count: 1,
+            level: event.level,
+            error: event.level === 'error',
+            eventCount: 1,
+            selectId: span.spanId,
+            spanName: span.name,
+            event,
+          })
+        }
+      }
+    }
+    hitRef.current = buckets
+    eventHitRef.current = eventBuckets
+  }, [
+    lane,
+    width,
+    rangeLo,
+    rangeHi,
+    view,
+    selectedSpanId,
+    showEvents,
+    search,
+    selfTime,
+    selfTimes,
+    paintVersion,
+    startRow,
+    rowCount,
+    last,
+    cssHeight,
+  ])
+
+  const hitTest = (x: number, y: number): HitRect | null => {
+    const row = Math.floor(y / ROW_H)
+    if (row < 0 || row >= rowCount) return null
+    const events = eventHitRef.current[row]
+    if (events) {
+      let nearest: HitRect | null = null
+      let distance = Infinity
+      for (const hit of events) {
+        if (x < hit.x0 || x > hit.x1) continue
+        const next = Math.abs(x - (hit.x0 + hit.x1) / 2)
+        if (next < distance) {
+          nearest = hit
+          distance = next
+        }
+      }
+      if (nearest) return nearest
+    }
+    const hits = hitRef.current[row]
+    if (!hits) return null
+    for (let i = hits.length - 1; i >= 0; i--) {
+      if (x >= hits[i].x0 && x <= hits[i].x1) return hits[i]
+    }
+    return null
+  }
+
+  const localHit = (event: ReactMouseEvent<HTMLCanvasElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect()
+    return hitTest(event.clientX - rect.left, event.clientY - rect.top)
+  }
+
+  return (
+    <canvas
+      ref={canvasRef}
+      className="fg-canvas fg-lane-canvas"
+      onMouseDown={(event) => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        onPanStart(event.currentTarget, event.clientX)
+      }}
+      onMouseMove={(event) => {
+        const hit = localHit(event)
+        event.currentTarget.style.cursor = hit ? 'pointer' : 'default'
+        if (hit) onHover(hit, event.clientX, event.clientY)
+        else onLeave()
+      }}
+      onMouseLeave={(event) => {
+        event.currentTarget.style.cursor = 'default'
+        onLeave()
+      }}
+      onClick={(event) => onPick(localHit(event))}
+      onDoubleClick={(event) => {
+        const hit = localHit(event)
+        onFocus(hit?.kind === 'span' ? hit.name : null)
+      }}
+    />
+  )
+}
+
+function FlameLane(props: FlameLaneProps) {
+  const { lane, scrollRoot } = props
+  const wrapperRef = useRef<HTMLDivElement | null>(null)
+  const [nearViewport, setNearViewport] = useState(false)
+  const dpr = typeof window === 'undefined' ? 1 : window.devicePixelRatio || 1
+  const tiles = splitCanvasRows(lane.maxDepth + 1, ROW_H, dpr, MAX_CANVAS_PX)
+  const height = (lane.maxDepth + 1 + LANE_GAP_ROWS) * ROW_H
+
+  useEffect(() => {
+    const wrapper = wrapperRef.current
+    if (!wrapper || !scrollRoot || typeof IntersectionObserver === 'undefined') {
+      setNearViewport(true)
+      return
+    }
+    const observer = new IntersectionObserver(
+      ([entry]) => setNearViewport(entry.isIntersecting),
+      { root: scrollRoot, rootMargin: '100% 0px' },
+    )
+    observer.observe(wrapper)
+    return () => observer.disconnect()
+  }, [scrollRoot])
+
+  return (
+    <div ref={wrapperRef} className="fg-lane" style={{ height }}>
+      {nearViewport && tiles.map((tile, index) => (
+        <FlameLaneTile
+          {...props}
+          key={tile.startRow}
+          startRow={tile.startRow}
+          rowCount={tile.rowCount}
+          last={index === tiles.length - 1}
+        />
+      ))}
+    </div>
+  )
+}
+
 // -------------------------------------------------------------- component --
 
 export default function FlameGraph(props: FlameGraphProps) {
@@ -433,6 +808,13 @@ export default function FlameGraph(props: FlameGraphProps) {
 
   const rootRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
+  const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null)
+  const [canvasWidth, setCanvasWidth] = useState(0)
+  const [paintVersion, setPaintVersion] = useState(0)
+  const bindScroll = useCallback((node: HTMLDivElement | null) => {
+    scrollRef.current = node
+    setScrollRoot(node)
+  }, [])
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const timelineRef = useRef<HTMLDivElement | null>(null)
   const minimapRef = useRef<HTMLCanvasElement | null>(null)
@@ -655,32 +1037,20 @@ export default function FlameGraph(props: FlameGraphProps) {
       themeRef.current = theme
     }
 
-    const hl = spanSearch
-    const accRgb = parseRgb(theme.accent) ?? [123, 135, 247]
-    const selfOverlay = `rgba(${accRgb[0]}, ${accRgb[1]}, ${accRgb[2]}, 0.6)`
-    const bgRgb = parseRgb(theme.flameBg) ?? [18, 18, 23]
-    // Scrim used to fade child-covered (non-self) regions toward the canvas.
-    const coverScrim = `rgba(${bgRgb[0]}, ${bgRgb[1]}, ${bgRgb[2]}, 0.6)`
-
     // Row layout.
-    const lanes: Lane[] = []
     let totalRows = 0
-    if (mode === 'instances') {
-      for (const al of displayedLanes) {
-        const rowCount = al.maxDepth + 1
-        lanes.push({ inst: al.inst, spans: al.spans, startRow: totalRows, rowCount })
-        totalRows += rowCount + LANE_GAP_ROWS
-      }
-    } else if (mergedLayout && mergedLayout.bars.length > 0) {
+    if (mode === 'merged' && mergedLayout && mergedLayout.bars.length > 0) {
       totalRows = mergedLayout.maxDepth + 1
     }
 
-    // Backing-store size (devicePixelRatio-aware). Very tall comparisons keep
-    // their full CSS height and reduce only vertical pixel density.
+    // The instance ruler stays at native DPR. Merged mode retains the guarded
+    // single-canvas backing store because its height is not multiplied by lanes.
     const cssW = Math.max(80, scroll.clientWidth)
-    const cssH = Math.max(140, RULER_H + totalRows * ROW_H + 10)
+    const cssH = mode === 'instances' ? RULER_H : Math.max(140, RULER_H + totalRows * ROW_H + 10)
     const dpr = window.devicePixelRatio || 1
-    const backing = fitCanvasBackingStore(cssW, cssH, dpr, MAX_CANVAS_PX)
+    const backing = mode === 'instances'
+      ? { ...nativeCanvasSize(cssW, cssH, dpr), scaleX: dpr, scaleY: dpr }
+      : fitCanvasBackingStore(cssW, cssH, dpr, MAX_CANVAS_PX)
     if (canvas.width !== backing.width || canvas.height !== backing.height) {
       canvas.width = backing.width
       canvas.height = backing.height
@@ -739,204 +1109,18 @@ export default function FlameGraph(props: FlameGraphProps) {
     ctx.lineTo(cssW, RULER_H - 0.5)
     ctx.stroke()
 
-    // Hit buckets, one array per 18px row. Event markers get their own
+    if (mode === 'instances') {
+      hitRef.current = []
+      eventHitRef.current = []
+      return
+    }
+
+    // Hit buckets, one array per packed row. Event markers get their own
     // buckets so they win hover/click over the bars they sit on.
     const buckets: Array<HitRect[] | undefined> = new Array(totalRows)
     const evBuckets: Array<HitRect[] | undefined> = new Array(totalRows)
 
-    if (mode === 'instances') {
-      // Gutter separator.
-      ctx.strokeStyle = theme.border
-      ctx.beginPath()
-      ctx.moveTo(GUTTER - 0.5, RULER_H)
-      ctx.lineTo(GUTTER - 0.5, cssH)
-      ctx.stroke()
-
-      for (const lane of lanes) {
-        const { inst } = lane
-        const laneTop = RULER_H + lane.startRow * ROW_H
-        const laneH = lane.rowCount * ROW_H
-        const color = instanceColor(theme, inst.colorIndex)
-
-        // Gutter: color stripe + instance name (+ span count).
-        ctx.fillStyle = color.base
-        ctx.fillRect(0, laneTop + 2, 3, laneH - 4)
-        ctx.font = theme.font
-        ctx.fillStyle = theme.textMuted
-        ctx.fillText(
-          ellipsize(inst.serviceName, GUTTER - 18, theme.charW),
-          10,
-          laneTop + ROW_H / 2,
-        )
-        if (lane.rowCount > 1) {
-          ctx.font = theme.fontSmall
-          ctx.fillStyle = theme.textFaint
-          ctx.fillText(
-            ellipsize(`${inst.spanCount} spans`, GUTTER - 18, theme.charWSmall),
-            10,
-            laneTop + ROW_H + ROW_H / 2,
-          )
-        }
-
-        // Lane separator (mid-gap).
-        ctx.strokeStyle = theme.flameGrid
-        ctx.beginPath()
-        ctx.moveTo(0, laneTop + laneH + ROW_H / 2 + 0.5)
-        ctx.lineTo(cssW, laneTop + laneH + ROW_H / 2 + 0.5)
-        ctx.stroke()
-
-        const ramp = color.fills
-        const borderC = color.border
-        ctx.font = theme.font
-        for (const { span, depth } of lane.spans) {
-          const sx0 = toX(span.startNs)
-          const sx1 = toX(span.startNs + span.durationNs)
-          if (sx1 < plotX0 || sx0 > cssW) continue
-          const x0 = Math.max(sx0, plotX0)
-          const x1 = Math.min(sx1, cssW)
-          const w = Math.max(x1 - x0 - CELL_GAP, 1)
-          const y = laneTop + depth * ROW_H + BAR_PAD_Y
-          const isError = span.status === 'error' || span.level === 'error'
-          // Highlight: fade spans whose name doesn't match the query.
-          ctx.globalAlpha = hl !== '' && !span.name.toLowerCase().includes(hl) ? 0.16 : 1
-          const selfNs = selfTimes.map.get(span.spanId) ?? 0
-
-          pathRoundRect(ctx, x0, y, w, BAR_H, CELL_RADIUS)
-          ctx.fillStyle = ramp[Math.min(depth, SHADE_LEVELS - 1)]
-          ctx.fill()
-          if (w >= 3) {
-            ctx.strokeStyle = borderC
-            ctx.stroke()
-          }
-          // Self-time: accent the segments not covered by any child (the
-          // span's own work/wait) and fade the child-covered segments so self
-          // stands out. Leaves are all self. Accent reads over any hue.
-          if (selfTime) {
-            const end = span.startNs + span.durationNs
-            const seg = (g0: number, g1: number, style: string) => {
-              const gx0 = Math.max(toX(g0), x0)
-              const gx1 = Math.min(toX(g1), x0 + w)
-              if (gx1 - gx0 > 0.5) {
-                ctx.fillStyle = style
-                ctx.fillRect(gx0, y, gx1 - gx0, BAR_H)
-              }
-            }
-            if (span.children.length === 0) {
-              seg(span.startNs, end, selfOverlay)
-            } else {
-              // Merge child intervals → covered; the complement is self.
-              const ivs = span.children
-                .map((c) => [c.startNs, c.startNs + c.durationNs] as [number, number])
-                .sort((a, b) => a[0] - b[0])
-              const covered: [number, number][] = []
-              for (const iv of ivs) {
-                const last = covered[covered.length - 1]
-                if (last && iv[0] <= last[1]) last[1] = Math.max(last[1], iv[1])
-                else covered.push([...iv])
-              }
-              let cursor = span.startNs
-              for (const [s, e] of covered) {
-                if (s > cursor) seg(cursor, s, selfOverlay)
-                seg(Math.max(s, span.startNs), e, coverScrim)
-                cursor = Math.max(cursor, e)
-              }
-              if (cursor < end) seg(cursor, end, selfOverlay)
-            }
-          }
-          if (isError) {
-            ctx.fillStyle = theme.error
-            ctx.fillRect(x0 + CELL_RADIUS, y + BAR_H - 2, Math.max(w - 2 * CELL_RADIUS, 1), 2)
-          }
-          if (span.spanId === selectedSpanId) {
-            pathRoundRect(ctx, x0 + 1, y + 1, w - 2, BAR_H - 2, CELL_RADIUS - 1)
-            ctx.strokeStyle = theme.accent
-            ctx.lineWidth = 2
-            ctx.stroke()
-            ctx.lineWidth = 1
-          }
-          if (w > LABEL_MIN_W) {
-            ctx.fillStyle = theme.bg
-            ctx.fillText(
-              ellipsize(span.name, w - 2 * CELL_PAD_X, theme.charW),
-              x0 + CELL_PAD_X,
-              y + BAR_H / 2 + 0.5,
-            )
-          }
-
-          const row = lane.startRow + depth
-          ;(buckets[row] ??= []).push({
-            kind: 'span',
-            x0,
-            x1,
-            name: span.name,
-            instanceId: inst.id,
-            durNs: span.durationNs,
-            selfNs,
-            startNs: span.startNs,
-            count: 1,
-            level: span.level,
-            error: isError,
-            eventCount: span.events.length,
-            selectId: span.spanId,
-          })
-        }
-        ctx.globalAlpha = 1
-
-        // Event overlay: one diamond per event at its timestamp, on the
-        // owning span's row, colored by level. Drawn after every bar in the
-        // lane so markers are never overpainted by sibling bars.
-        if (showEvents) {
-          for (const { span, depth } of lane.spans) {
-            if (span.events.length === 0) continue
-            const row = lane.startRow + depth
-            const cy = laneTop + depth * ROW_H + BAR_PAD_Y + BAR_H / 2
-            for (const ev of span.events) {
-              const ex = toX(ev.timeNs)
-              if (ex < plotX0 || ex > cssW) continue
-              ctx.beginPath()
-              ctx.moveTo(ex, cy - 4.5)
-              ctx.lineTo(ex + 4.5, cy)
-              ctx.lineTo(ex, cy + 4.5)
-              ctx.lineTo(ex - 4.5, cy)
-              ctx.closePath()
-              ctx.fillStyle = theme.levels[ev.level ?? 'trace']
-              ctx.fill()
-              ctx.strokeStyle = theme.bg
-              ctx.stroke()
-              ;(evBuckets[row] ??= []).push({
-                kind: 'event',
-                x0: ex - 5,
-                x1: ex + 5,
-                name: ev.name,
-                instanceId: inst.id,
-                durNs: -1,
-                selfNs: -1,
-                startNs: ev.timeNs,
-                count: 1,
-                level: ev.level,
-                error: ev.level === 'error',
-                eventCount: 1,
-                selectId: span.spanId,
-                spanName: span.name,
-                event: ev,
-              })
-            }
-          }
-        }
-      }
-
-      if (lanes.length === 0) {
-        ctx.font = theme.font
-        ctx.fillStyle = theme.textFaint
-        ctx.textAlign = 'center'
-        ctx.fillText(
-          spanSearch === '' ? 'all instances hidden' : 'no spans match search',
-          cssW / 2,
-          (RULER_H + cssH) / 2,
-        )
-        ctx.textAlign = 'left'
-      }
-    } else if (mergedLayout) {
+    if (mergedLayout) {
       for (const bar of mergedLayout.bars) {
         const bx0 = toX(bar.x0Ns)
         const bx1 = toX(bar.x0Ns + bar.widthNs)
@@ -1023,8 +1207,9 @@ export default function FlameGraph(props: FlameGraphProps) {
     eventHitRef.current = evBuckets
   }
 
-  // Activity overview inside the timeline track: one thick, full-opacity band
-  // per instance marking where its spans are active across the active extent
+  // Activity overview inside the timeline track: one band per instance marking
+  // where its spans are active across the active extent. Span search keeps all
+  // bands for context and mutes lanes without a match.
   // (full trace, or — when focused — the subtree, so the minimap auto-zooms to
   // it). The window brush over it shows the current view.
   const drawMinimap = () => {
@@ -1143,6 +1328,7 @@ export default function FlameGraph(props: FlameGraphProps) {
   useEffect(() => {
     const mo = new MutationObserver(() => {
       themeRef.current = null
+      setPaintVersion((version) => version + 1)
       schedule()
     })
     mo.observe(document.documentElement, {
@@ -1154,18 +1340,24 @@ export default function FlameGraph(props: FlameGraphProps) {
 
   // Repaint on container resize.
   useEffect(() => {
-    const el = scrollRef.current
+    const el = scrollRoot
     if (!el) return
-    const ro = new ResizeObserver(() => schedule())
+    const update = () => {
+      setCanvasWidth(Math.max(80, el.clientWidth))
+      schedule()
+    }
+    update()
+    const ro = new ResizeObserver(update)
     ro.observe(el)
     return () => ro.disconnect()
-  }, [schedule])
+  }, [schedule, scrollRoot])
 
   // Repaint when devicePixelRatio changes (window dragged across monitors).
   // The dppx value is baked into the media query, so re-register per value.
   useEffect(() => {
     let mq = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
     const onChange = () => {
+      setPaintVersion((version) => version + 1)
       schedule()
       mq.removeEventListener('change', onChange)
       mq = matchMedia(`(resolution: ${window.devicePixelRatio}dppx)`)
@@ -1179,8 +1371,8 @@ export default function FlameGraph(props: FlameGraphProps) {
   // vertical wheel is left to scroll the lane list natively. Non-passive only
   // when we actually zoom, so vertical scrolling isn't blocked.
   useEffect(() => {
-    const canvas = canvasRef.current
-    if (!canvas) return
+    const scroll = scrollRoot
+    if (!scroll) return
     const onWheel = (e: WheelEvent) => {
       // Treat Shift+wheel as horizontal (browsers may report it on either
       // axis), otherwise require the horizontal axis to dominate.
@@ -1196,7 +1388,7 @@ export default function FlameGraph(props: FlameGraphProps) {
       const v = viewRef.current
       const win0 = v ? clamp(v.t1 - v.t0, minWin, span) : span
       const vt0 = v ? clamp(v.t0, lo, hi - win0) : lo
-      const rect = canvas.getBoundingClientRect()
+      const rect = scroll.getBoundingClientRect()
       const frac = clamp((e.clientX - rect.left - g.plotX0) / g.plotW, 0, 1)
       const delta = e.deltaMode === 1 ? amt * 24 : amt
       const nwin = clamp(win0 * Math.exp(delta * 0.0022), minWin, span)
@@ -1207,9 +1399,9 @@ export default function FlameGraph(props: FlameGraphProps) {
       hideTip()
       schedule()
     }
-    canvas.addEventListener('wheel', onWheel, { passive: false })
-    return () => canvas.removeEventListener('wheel', onWheel)
-  }, [schedule, hideTip])
+    scroll.addEventListener('wheel', onWheel, { passive: false })
+    return () => scroll.removeEventListener('wheel', onWheel)
+  }, [schedule, hideTip, scrollRoot])
 
   // ---------------------------------------------------------- interaction --
 
@@ -1247,12 +1439,9 @@ export default function FlameGraph(props: FlameGraphProps) {
     return null
   }, [])
 
-  const handleMouseDown = (e: ReactMouseEvent<HTMLCanvasElement>) => {
-    if (e.button !== 0) return
-    e.preventDefault()
+  const startPan = (canvas: HTMLCanvasElement, startX: number) => {
     rootRef.current?.focus()
     suppressClickRef.current = false
-    const canvas = e.currentTarget
     const g = geomRef.current
     if (!g) return
     const { lo, hi } = rangeRef.current
@@ -1261,7 +1450,6 @@ export default function FlameGraph(props: FlameGraphProps) {
     const v = viewRef.current
     const win = v ? clamp(v.t1 - v.t0, minWin, rangeSpan) : rangeSpan
     const startT0 = v ? clamp(v.t0, lo, hi - win) : lo
-    const startX = e.clientX
     const drag = { moved: false }
     dragRef.current = drag
     const onMove = (ev: MouseEvent) => {
@@ -1286,6 +1474,12 @@ export default function FlameGraph(props: FlameGraphProps) {
     window.addEventListener('mouseup', onUp)
   }
 
+  const handleMouseDown = (e: ReactMouseEvent<HTMLCanvasElement>) => {
+    if (e.button !== 0) return
+    e.preventDefault()
+    startPan(e.currentTarget, e.clientX)
+  }
+
   const handleMouseMove = (e: ReactMouseEvent<HTMLCanvasElement>) => {
     if (dragRef.current) return // panning is handled by window listeners
     const canvas = e.currentTarget
@@ -1294,7 +1488,7 @@ export default function FlameGraph(props: FlameGraphProps) {
     const py = e.clientY - rect.top
     const hit = hitTest(px, py)
     canvas.style.cursor = hit ? 'pointer' : 'default'
-    if (hit) showTip({ ...hit, x: px, y: py })
+    if (hit) showTip({ ...hit, x: e.clientX, y: e.clientY })
     else hideTip()
   }
 
@@ -1395,9 +1589,8 @@ export default function FlameGraph(props: FlameGraphProps) {
   let tipLeft = 0
   let tipTop = 0
   if (tip) {
-    const g = geomRef.current
-    const w = g ? g.cssW : 600
-    const h = g ? g.cssH : 400
+    const w = window.innerWidth
+    const h = window.innerHeight
     tipLeft = Math.max(4, Math.min(tip.x + 14, w - 270))
     tipTop = tip.y + 16
     if (tipTop > h - 140) tipTop = Math.max(4, tip.y - 140)
@@ -1576,17 +1769,57 @@ export default function FlameGraph(props: FlameGraphProps) {
         </div>
       </div>
 
-      <div className="fg-scroll" ref={scrollRef}>
+      <div className="fg-scroll" ref={bindScroll}>
         <div className="fg-canvas-wrap">
-          <canvas
-            ref={canvasRef}
-            className="fg-canvas"
-            onMouseDown={handleMouseDown}
-            onMouseMove={handleMouseMove}
-            onMouseLeave={handleMouseLeave}
-            onClick={handleClick}
-            onDoubleClick={handleDoubleClick}
-          />
+          {mode === 'instances' ? (
+            <>
+              <canvas ref={canvasRef} className="fg-canvas fg-ruler-canvas" />
+              {displayedLanes.map((lane) => (
+                <FlameLane
+                  key={lane.inst.id}
+                  lane={lane}
+                  width={canvasWidth}
+                  rangeLo={rangeLo}
+                  rangeHi={rangeHi}
+                  view={viewWin}
+                  selectedSpanId={selectedSpanId}
+                  showEvents={showEvents}
+                  search={spanSearch}
+                  selfTime={selfTime}
+                  selfTimes={selfTimes.map}
+                  scrollRoot={scrollRoot}
+                  paintVersion={paintVersion}
+                  onHover={(hit, x, y) => showTip({ ...hit, x, y })}
+                  onLeave={hideTip}
+                  onPick={(hit) => {
+                    if (suppressClickRef.current) {
+                      suppressClickRef.current = false
+                      return
+                    }
+                    if (hit?.kind === 'event' && hit.event !== undefined) onSelectEvent(hit.event)
+                    else onSelect(hit?.selectId ?? null)
+                  }}
+                  onFocus={(name) => name === null ? resetView() : setFocusName(name)}
+                  onPanStart={startPan}
+                />
+              ))}
+              {displayedLanes.length === 0 && (
+                <div className="fg-lane-empty">
+                  {spanSearch === '' ? 'all instances hidden' : 'no spans match search'}
+                </div>
+              )}
+            </>
+          ) : (
+            <canvas
+              ref={canvasRef}
+              className="fg-canvas"
+              onMouseDown={handleMouseDown}
+              onMouseMove={handleMouseMove}
+              onMouseLeave={handleMouseLeave}
+              onClick={handleClick}
+              onDoubleClick={handleDoubleClick}
+            />
+          )}
           {tip && (
             <div className="fg-tooltip" style={{ left: tipLeft, top: tipTop }}>
               <div className="fg-tooltip-name">

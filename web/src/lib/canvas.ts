@@ -5,6 +5,32 @@ export interface CanvasBackingStore {
   scaleY: number
 }
 
+export interface CanvasRowTile {
+  startRow: number
+  rowCount: number
+}
+
+export function nativeCanvasSize(cssWidth: number, cssHeight: number, devicePixelRatio: number) {
+  return {
+    width: Math.max(1, Math.round(cssWidth * devicePixelRatio)),
+    height: Math.max(1, Math.round(cssHeight * devicePixelRatio)),
+  }
+}
+
+export function splitCanvasRows(
+  rowCount: number,
+  rowHeight: number,
+  devicePixelRatio: number,
+  maxPixels: number,
+): CanvasRowTile[] {
+  const rowsPerTile = Math.max(1, Math.floor(maxPixels / devicePixelRatio / rowHeight))
+  const tiles: CanvasRowTile[] = []
+  for (let startRow = 0; startRow < rowCount; startRow += rowsPerTile) {
+    tiles.push({ startRow, rowCount: Math.min(rowsPerTile, rowCount - startRow) })
+  }
+  return tiles
+}
+
 function fitAxis(cssPixels: number, devicePixelRatio: number, maxPixels: number) {
   const pixels = Math.min(maxPixels, Math.max(1, Math.round(cssPixels * devicePixelRatio)))
   return { pixels, scale: pixels / cssPixels }

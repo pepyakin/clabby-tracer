@@ -262,10 +262,32 @@
   display: block;
 }
 
+.fg-ruler-canvas {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+}
+
+.fg-lane {
+  position: relative;
+}
+
+.fg-lane-canvas {
+  width: 100%;
+}
+
+.fg-lane-empty {
+  display: grid;
+  min-height: 140px;
+  place-items: center;
+  color: var(--text-faint);
+  font-size: var(--font-size-sm);
+}
+
 /* --------------------------------------------------------------- tooltip -- */
 
 .fg-tooltip {
-  position: absolute;
+  position: fixed;
   z-index: 20;
   pointer-events: none;
   min-width: 190px;
