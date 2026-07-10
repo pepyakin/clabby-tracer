@@ -161,6 +161,87 @@ export interface SpanMatch {
   startUnixMs: number
 }
 
+// ------------------------------------------------------ performance diff --
+
+export type PerformanceEvidence =
+  | 'improved'
+  | 'regressed'
+  | 'within-noise'
+  | 'inconclusive'
+  | 'descriptive'
+  | 'added'
+  | 'removed'
+
+export interface PerformanceEstimate {
+  meanNs: number
+  medianNs: number
+  p95Ns: number
+  madNs: number
+  samples: number
+  outliers: number
+}
+
+export interface PerformanceInterval {
+  low: number
+  high: number
+}
+
+export interface PerformanceInstanceDiff {
+  instanceId: string
+  baselineMeanNs: number | null
+  candidateMeanNs: number | null
+  relativeChange: number | null
+  baselineSamples: number
+  candidateSamples: number
+}
+
+export interface PerformancePathDiff {
+  key: string
+  path: string[]
+  depth: number
+  baseline: PerformanceEstimate
+  candidate: PerformanceEstimate
+  absoluteChangeNs: number
+  relativeChange: number | null
+  relativeInterval: PerformanceInterval | null
+  rawP: number | null
+  adjustedP: number | null
+  evidence: PerformanceEvidence
+  baselineCalls: number
+  candidateCalls: number
+  baselineCoverage: number
+  candidateCoverage: number
+  baselineErrors: number
+  candidateErrors: number
+  instances: PerformanceInstanceDiff[]
+}
+
+export interface PerformanceDiff {
+  paths: PerformancePathDiff[]
+  root: PerformancePathDiff | null
+  baselineOperations: number
+  candidateOperations: number
+  baselineInstances: string[]
+  candidateInstances: string[]
+  inferential: boolean
+  warning: string | null
+  threshold: number
+}
+
+export type PerformanceSource =
+  | { kind: 'query'; query: string; label: string }
+  | { kind: 'export'; label: string; model: TraceModel }
+
+export interface PerformanceDiffProps {
+  baseline: TraceModel
+  candidate: TraceModel
+  baselineLabel: string
+  candidateLabel: string
+  threshold: number
+  onThresholdChange: (threshold: number) => void
+  onSwap: () => void
+}
+
 // ----------------------------------------------------- aggregated flame --
 
 /**

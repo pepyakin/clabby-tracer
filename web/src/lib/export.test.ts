@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { exportTrace } from './export'
+import { exportTrace, importTraceExport } from './export'
 import { parseTrace } from './trace'
 
 const TRACE = 'aaaabbbbccccdddd0000111122223333'
@@ -61,6 +61,8 @@ describe('exportTrace', () => {
     const out = exportTrace(model, new Set())
 
     expect(out.traceId).toBe(TRACE)
+    expect(out.format).toBe('tracer.trace')
+    expect(out.version).toBe(1)
     expect(Object.keys(out.services).sort()).toEqual(['node-0', 'node-1'])
 
     const root = out.services['node-0'].spans[0]
@@ -93,5 +95,20 @@ describe('exportTrace', () => {
     const model = parseTrace(RAW, TRACE)
     const out = exportTrace(model, new Set())
     expect(JSON.parse(JSON.stringify(out))).toEqual(out)
+  })
+
+  test('imports versioned and legacy exports into an analyzable model', () => {
+    const exported = exportTrace(parseTrace(RAW, TRACE), new Set())
+    const imported = importTraceExport(JSON.parse(JSON.stringify(exported)))
+    expect(imported.instances.map((instance) => instance.id)).toEqual(['node-0', 'node-1'])
+    expect(imported.spans.get('2222222222222222')?.parentSpanId).toBe('1111111111111111')
+    expect(imported.events[0]?.name).toBe('error')
+
+    const { format: _format, version: _version, ...legacy } = exported
+    expect(importTraceExport(legacy).spans.size).toBe(3)
+  })
+
+  test('rejects malformed exports with a useful field path', () => {
+    expect(() => importTraceExport({ traceId: TRACE })).toThrow('startTime')
   })
 })
