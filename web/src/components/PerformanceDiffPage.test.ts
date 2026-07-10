@@ -29,4 +29,21 @@ describe('layoutFlame', () => {
     expect(cells.get('nested')?.width).toBe(30)
     expect(cells.get('small')?.left).toBe(60)
   })
+
+  test('contains concurrent children within their parent', () => {
+    const layout = layoutFlame([
+      path(['first'], 100),
+      path(['first', 'concurrent-a'], 80),
+      path(['first', 'concurrent-b'], 70),
+      path(['second'], 100),
+      path(['second', 'child'], 50),
+    ], null)
+    const cells = new Map(layout.cells.map((cell) => [cell.row.path.at(-1), cell]))
+    const first = cells.get('first')!
+    const firstChildren = [cells.get('concurrent-a')!, cells.get('concurrent-b')!]
+
+    expect(firstChildren[0].left).toBeGreaterThanOrEqual(first.left)
+    expect(firstChildren[1].left + firstChildren[1].width).toBeLessThanOrEqual(first.left + first.width)
+    expect(firstChildren[0].width / firstChildren[1].width).toBeCloseTo(80 / 70)
+  })
 })

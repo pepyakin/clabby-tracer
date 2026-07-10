@@ -230,7 +230,7 @@ export function layoutFlame(rows: PerformancePathDiff[], focusedKey: string | nu
       if (descendants !== undefined) {
         const childScale = cellWidth / weight(row)
         const childrenWidth = descendants.reduce((sum, child) => sum + weight(child) * childScale, 0)
-        place(descendants, cursor, childrenWidth, depth + 1)
+        place(descendants, cursor, Math.min(cellWidth, childrenWidth), depth + 1)
       }
       cursor += cellWidth
     }
