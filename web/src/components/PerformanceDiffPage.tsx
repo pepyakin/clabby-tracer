@@ -317,7 +317,7 @@ function frameBackground(row: PerformancePathDiff, metric: PerformanceMetric): s
   if (result.evidence === 'added' || result.evidence === 'removed') return undefined
   if (result.relativeChange === null || result.relativeChange === 0) return undefined
   const token = result.relativeChange > 0 ? '--perf-regressed' : '--perf-improved'
-  const strength = result.reliable ? Math.min(76, 18 + Math.abs(result.relativeChange) * 110) : 12
+  const strength = Math.min(76, 18 + Math.abs(result.relativeChange) * 110)
   return `color-mix(in srgb, var(${token}) ${strength}%, var(--surface-hover))`
 }
 
