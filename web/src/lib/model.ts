@@ -500,6 +500,15 @@ export interface SpanStatsProps {
   model: TraceModel
 }
 
+export interface CompareStatsProps {
+  model: TraceModel
+}
+
+export interface CompareHotPathsProps {
+  model: TraceModel
+  onSelectSpan: (spanId: string) => void
+}
+
 export interface HeatMapProps {
   model: TraceModel
 }

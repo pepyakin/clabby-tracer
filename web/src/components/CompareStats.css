@@ -1,0 +1,28 @@
+.cs { height: 100%; min-width: 0; min-height: 0; display: grid; grid-template-columns: minmax(260px, 330px) minmax(0, 1fr); overflow: hidden; }
+.cs-index { min-width: 0; min-height: 0; display: flex; flex-direction: column; border-right: 1px solid var(--border); background: var(--inset); }
+.cs-index-header { padding: 11px; display: flex; flex-direction: column; gap: 9px; border-bottom: 1px solid var(--border); }
+.cs-index-header .input { width: 100%; }
+.cs-span-list { min-height: 0; flex: 1; padding: 6px; overflow: auto; }
+.cs-span-list button { position: relative; width: 100%; min-width: 0; padding: 9px 8px 11px; display: flex; flex-direction: column; gap: 5px; overflow: hidden; border: 0; border-radius: 4px; background: transparent; color: var(--text); font: inherit; text-align: left; cursor: pointer; }
+.cs-span-list button:hover { background: var(--surface-hover); }
+.cs-span-list button.active { background: var(--accent-bg); }
+.cs-span-list button > i { position: absolute; left: 8px; right: 8px; bottom: 5px; height: 2px; max-width: calc(100% - 16px); border-radius: 1px; background: var(--accent); }
+.cs-span-row-head,
+.cs-span-row-meta { min-width: 0; display: flex; justify-content: space-between; gap: 10px; }
+.cs-span-row-head strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-span-row-meta { font-size: var(--font-size-xs); }
+.cs-detail { min-width: 0; min-height: 0; padding: 10px; display: flex; flex-direction: column; gap: 9px; overflow: auto; }
+.cs-detail-header { display: flex; align-items: end; justify-content: space-between; gap: 18px; }
+.cs-detail-header h2 { margin: 2px 0 0; font-size: var(--font-size-lg); }
+.cs-summary { display: grid; grid-template-columns: repeat(5, minmax(110px, 1fr)); gap: 7px; }
+.cs-summary-card,
+.cs-plot-card { min-width: 0; padding: 11px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--surface-raised); }
+.cs-summary-card { display: flex; flex-direction: column; gap: 3px; }
+.cs-summary-card strong { font-size: var(--font-size-lg); }
+.cs-section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+@media (max-width: 900px) {
+  .cs { grid-template-columns: 1fr; grid-template-rows: minmax(220px, 38%) minmax(0, 1fr); }
+  .cs-index { border-right: 0; border-bottom: 1px solid var(--border); }
+  .cs-summary { grid-template-columns: repeat(2, minmax(110px, 1fr)); }
+}

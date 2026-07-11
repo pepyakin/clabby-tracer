@@ -7,6 +7,7 @@ import EventDetails from './components/EventDetails'
 import ExportModal from './components/ExportModal'
 import EventsView from './components/EventsView'
 import SpanStats from './components/SpanStats'
+import CompareStats from './components/CompareStats'
 import HeatMap from './components/HeatMap'
 import FlameGraph from './components/FlameGraph'
 import PerformanceDiffPage from './components/PerformanceDiffPage'
@@ -697,7 +698,7 @@ export default function App() {
                       onSelectEvent={selectEvent}
                     />
                   )}
-                  {tab === 'stats' && <SpanStats model={model} />}
+                  {tab === 'stats' && (route.view === 'compare' ? <CompareStats model={model} /> : <SpanStats model={model} />)}
                   {tab === 'heatmap' && <HeatMap model={model} />}
                 </div>
                 {selected?.kind === 'span' && (
