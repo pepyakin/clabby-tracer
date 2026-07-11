@@ -8,6 +8,7 @@ import ExportModal from './components/ExportModal'
 import EventsView from './components/EventsView'
 import SpanStats from './components/SpanStats'
 import CompareStats from './components/CompareStats'
+import CompareHotPaths from './components/CompareHotPaths'
 import HeatMap from './components/HeatMap'
 import FlameGraph from './components/FlameGraph'
 import PerformanceDiffPage from './components/PerformanceDiffPage'
@@ -325,7 +326,7 @@ export default function App() {
   const model = active.data ?? null
   const viewKey = route.view === 'compare' ? `compare:${route.query}` : traceId
 
-  const [tab, setTab] = useState<'flame' | 'events' | 'stats' | 'heatmap'>('flame')
+  const [tab, setTab] = useState<'flame' | 'events' | 'stats' | 'heatmap' | 'hotpaths'>('flame')
   // The details pane shows either a span or an event.
   const [selected, setSelected] = useState<
     { kind: 'span'; spanId: string } | { kind: 'event'; event: SpanEvent } | null
@@ -644,12 +645,17 @@ export default function App() {
                   >
                     stats
                   </button>
-                  <button
+                  {route.view === 'compare' ? <button
+                    className={`chip ${tab === 'hotpaths' ? 'active' : ''}`}
+                    onClick={() => setTab('hotpaths')}
+                  >
+                    hot paths
+                  </button> : <button
                     className={`chip ${tab === 'heatmap' ? 'active' : ''}`}
                     onClick={() => setTab('heatmap')}
                   >
                     heatmap
-                  </button>
+                  </button>}
                 </div>
                 <button
                   type="button"
@@ -700,6 +706,7 @@ export default function App() {
                   )}
                   {tab === 'stats' && (route.view === 'compare' ? <CompareStats model={model} /> : <SpanStats model={model} />)}
                   {tab === 'heatmap' && <HeatMap model={model} />}
+                  {tab === 'hotpaths' && <CompareHotPaths model={model} onSelectSpan={selectSpan} />}
                 </div>
                 {selected?.kind === 'span' && (
                   <SpanDetails
