@@ -9,6 +9,7 @@ import EventsView from './components/EventsView'
 import SpanStats from './components/SpanStats'
 import CompareStats from './components/CompareStats'
 import CompareHotPaths from './components/CompareHotPaths'
+import CompareLatencyPath from './components/CompareLatencyPath'
 import HeatMap from './components/HeatMap'
 import FlameGraph from './components/FlameGraph'
 import PerformanceDiffPage from './components/PerformanceDiffPage'
@@ -55,7 +56,9 @@ function parseHash(): Route {
     const params = new URLSearchParams(dm[1] ?? '')
     const threshold = Number(params.get('threshold') ?? '0.02')
     const rawView = params.get('view')
-    const diffView: PerformanceDiffView = rawView === 'paths' || rawView === 'nodes' ? rawView : 'overview'
+    const diffView: PerformanceDiffView = rawView === 'paths' || rawView === 'nodes' || rawView === 'latency'
+      ? rawView
+      : 'overview'
     return {
       view: 'diff',
       baselineQuery: params.get('baseline'),
@@ -326,7 +329,7 @@ export default function App() {
   const model = active.data ?? null
   const viewKey = route.view === 'compare' ? `compare:${route.query}` : traceId
 
-  const [tab, setTab] = useState<'flame' | 'events' | 'stats' | 'heatmap' | 'hotpaths'>('flame')
+  const [tab, setTab] = useState<'flame' | 'events' | 'stats' | 'heatmap' | 'hotpaths' | 'latency'>('flame')
   // The details pane shows either a span or an event.
   const [selected, setSelected] = useState<
     { kind: 'span'; spanId: string } | { kind: 'event'; event: SpanEvent } | null
@@ -645,12 +648,20 @@ export default function App() {
                   >
                     stats
                   </button>
-                  {route.view === 'compare' ? <button
-                    className={`chip ${tab === 'hotpaths' ? 'active' : ''}`}
-                    onClick={() => setTab('hotpaths')}
-                  >
-                    hot paths
-                  </button> : <button
+                  {route.view === 'compare' ? <>
+                    <button
+                      className={`chip ${tab === 'latency' ? 'active' : ''}`}
+                      onClick={() => setTab('latency')}
+                    >
+                      latency path
+                    </button>
+                    <button
+                      className={`chip ${tab === 'hotpaths' ? 'active' : ''}`}
+                      onClick={() => setTab('hotpaths')}
+                    >
+                      hot paths
+                    </button>
+                  </> : <button
                     className={`chip ${tab === 'heatmap' ? 'active' : ''}`}
                     onClick={() => setTab('heatmap')}
                   >
@@ -707,6 +718,7 @@ export default function App() {
                   {tab === 'stats' && (route.view === 'compare' ? <CompareStats model={model} /> : <SpanStats model={model} />)}
                   {tab === 'heatmap' && <HeatMap model={model} />}
                   {tab === 'hotpaths' && <CompareHotPaths model={model} onSelectSpan={selectSpan} />}
+                  {tab === 'latency' && <CompareLatencyPath model={model} onSelectSpan={selectSpan} />}
                 </div>
                 {selected?.kind === 'span' && (
                   <SpanDetails

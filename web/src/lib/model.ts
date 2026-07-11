@@ -328,7 +328,7 @@ export interface PerformanceDiffProps {
   onSwap: () => void
 }
 
-export type PerformanceDiffView = 'overview' | 'paths' | 'nodes'
+export type PerformanceDiffView = 'overview' | 'latency' | 'paths' | 'nodes'
 
 export interface PerformanceDiffPageProps {
   baselineQuery: string | null
@@ -561,6 +561,16 @@ export interface CompareStatsProps {
 }
 
 export interface CompareHotPathsProps {
+  model: TraceModel
+  onSelectSpan: (spanId: string) => void
+}
+
+export interface LatencyPathTimelineProps {
+  operation: LatencyOperation
+  onSelectSpan?: (spanId: string) => void
+}
+
+export interface CompareLatencyPathProps {
   model: TraceModel
   onSelectSpan: (spanId: string) => void
 }
