@@ -881,7 +881,7 @@ export default function PerformanceDiffPage({
               <span className="pd-view-tabs">
                 {(['overview', 'latency', 'paths', 'nodes'] as const).map((item) => (
                   <button type="button" key={item} className={`chip ${view === item ? 'active' : ''}`} onClick={() => route({ view: item })}>
-                    {item === 'paths' ? 'hot paths' : item === 'latency' ? 'latency path' : item}
+                    {item === 'paths' ? 'span cost' : item === 'latency' ? 'latency path' : item}
                   </button>
                 ))}
               </span>
@@ -913,7 +913,7 @@ export default function PerformanceDiffPage({
               <span className="pd-view-tabs">
                 {(['overview', 'latency', 'paths', 'nodes'] as const).map((item) => (
                   <button type="button" key={item} className={`chip ${view === item ? 'active' : ''}`} onClick={() => route({ view: item })}>
-                    {item === 'paths' ? 'hot paths' : item === 'latency' ? 'latency path' : item}
+                    {item === 'paths' ? 'span cost' : item === 'latency' ? 'latency path' : item}
                   </button>
                 ))}
               </span>

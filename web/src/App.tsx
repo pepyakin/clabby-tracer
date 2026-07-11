@@ -658,7 +658,7 @@ export default function App() {
                       className={`chip ${tab === 'hotpaths' ? 'active' : ''}`}
                       onClick={() => setTab('hotpaths')}
                     >
-                      hot paths
+                      span cost
                     </button>
                   </> : null}
                 </div>

@@ -57,8 +57,8 @@ export default function CompareHotPaths({ model, onSelectSpan }: CompareHotPaths
 
   return <section className="panel chp">
     <header className="chp-toolbar">
-      <div><span className="panel-title">hot paths</span><span className="faint"> {filtered.length} call paths · inclusive span time</span></div>
-      <input className="input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="filter call paths" aria-label="filter hot paths" />
+      <div><span className="panel-title">span cost</span><span className="faint"> {filtered.length} call paths · inclusive span time</span></div>
+      <input className="input" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="filter call paths" aria-label="filter span costs" />
       <span className="chp-sort">
         {(['cost', 'p95', 'calls', 'name'] as const).map((value) => <button type="button" className={`chip ${sort === value ? 'active' : ''}`} key={value} onClick={() => setSort(value)}>{value}</button>)}
       </span>
