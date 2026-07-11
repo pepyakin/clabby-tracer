@@ -1,6 +1,6 @@
 .lpt { position: relative; height: 48px; overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--inset); }
 .lpt > button,
-.lpt-segment { position: absolute; top: 0; box-sizing: border-box; height: 100%; min-width: 0; padding: 0 7px; display: flex; align-items: center; overflow: hidden; border: 0; border-right: 1px solid color-mix(in srgb, var(--bg) 55%, transparent); color: var(--text); font: inherit; text-align: left; }
+.lpt-segment { position: absolute; top: 0; box-sizing: border-box; height: 100%; min-width: 0; padding: 0 7px; display: flex; align-items: center; overflow: hidden; border: 0; border-right: 1px solid color-mix(in srgb, var(--bg) 55%, transparent); color: var(--latency-label); font: inherit; text-align: left; }
 .lpt > button { cursor: pointer; }
 .lpt > button:hover { filter: brightness(1.18); z-index: 2; }
 .lpt > .unattributed { color: var(--text-faint); }

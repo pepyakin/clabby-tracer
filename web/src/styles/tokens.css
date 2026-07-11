@@ -60,6 +60,7 @@
   --perf-improved: #4fb6a2;
   --perf-regressed: #e0635c;
   --perf-neutral: #737380;
+  --latency-label: #ffffff;
 
   /* Log levels */
   --level-trace: #62626d;
@@ -110,6 +111,7 @@
   --perf-improved: #1f9077;
   --perf-regressed: #c8423a;
   --perf-neutral: #777783;
+  --latency-label: #ffffff;
 
   --level-trace: #9a9aa6;
   --level-debug: #3d7fc2;

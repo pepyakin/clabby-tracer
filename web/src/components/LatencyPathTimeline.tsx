@@ -35,7 +35,12 @@ export default function LatencyPathTimeline({ operation, onSelectSpan }: Latency
           onClick={() => onSelectSpan(segment.spanId!)}
         ><span>{label}</span></button>
       }
-      return <span key={`${segment.startNs}-${index}`} className={`lpt-segment unattributed${segment.ambiguous ? ' ambiguous' : ''}`} style={style} title={title}><span>{label}</span></span>
+      const classes = [
+        'lpt-segment',
+        segment.path === null ? 'unattributed' : '',
+        segment.ambiguous ? 'ambiguous' : '',
+      ].filter(Boolean).join(' ')
+      return <span key={`${segment.startNs}-${index}`} className={classes} style={style} title={title}><span>{label}</span></span>
     })}
   </div>
 }
