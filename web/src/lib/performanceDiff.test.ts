@@ -115,6 +115,19 @@ describe('analyzePerformanceDiff', () => {
     expect(diff.root?.relativeInterval).not.toBeNull()
   })
 
+  test('supports inference for a single node with enough operations', () => {
+    const baseline = model(1, 24)
+    const candidate = model(2, 24)
+    baseline.instances = baseline.instances.slice(0, 1)
+    candidate.instances = candidate.instances.slice(0, 1)
+
+    const diff = analyzePerformanceDiff(baseline, candidate, 0.02, { resamples: 100, seed: 11 })
+
+    expect(diff.inferential).toBe(true)
+    expect(diff.comparisonMode).toBe('paired')
+    expect(diff.root?.relativeInterval).not.toBeNull()
+  })
+
   test('includes asynchronous descendants in a path subtree cost', () => {
     const baseline = model(1)
     const candidate = model(1)

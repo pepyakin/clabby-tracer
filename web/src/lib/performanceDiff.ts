@@ -483,9 +483,7 @@ export function analyzePerformanceDiff(
     baselineInstances.every((id, index) => id === candidateInstances[index])
   const enoughSamples =
     baseline.operations.length >= MIN_SAMPLES &&
-    candidate.operations.length >= MIN_SAMPLES &&
-    baselineInstances.length >= 2 &&
-    candidateInstances.length >= 2
+    candidate.operations.length >= MIN_SAMPLES
   const comparisonMode: PerformanceDiff['comparisonMode'] = !enoughSamples
     ? 'descriptive'
     : sameInstances ? 'paired' : 'unpaired'
@@ -493,7 +491,7 @@ export function analyzePerformanceDiff(
   const warning = comparisonMode === 'unpaired'
     ? `Node identities do not overlap; using unpaired analysis across ${baselineInstances.length} baseline and ${candidateInstances.length} candidate nodes.`
     : comparisonMode === 'descriptive'
-      ? `At least ${MIN_SAMPLES} operations and two nodes per side are required for confidence intervals and adjusted p-values.`
+      ? `Inference withheld: At least ${MIN_SAMPLES} operations per side are required. Observed changes remain descriptive.`
       : null
   const keys = [...new Set([...baseline.paths.keys(), ...candidate.paths.keys()])]
   const resamples = options.resamples ?? DEFAULT_RESAMPLES
