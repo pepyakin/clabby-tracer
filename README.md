@@ -6,7 +6,10 @@ instance and renders them as multi-instance flamegraphs: spans emitted by
 separate nodes executing the same protocol viewed side by side.
 
 <p align="center">
-<img width="1882" height="1212" alt="Screenshot 2026-06-11 at 2 42 04 AM" src="https://github.com/user-attachments/assets/670cd813-4f38-4961-9a32-f6f5202a2202" />
+  <img width="1882" height="1212" alt="Screenshot 2026-06-11 at 2 42 04 AM" src="https://github.com/user-attachments/assets/670cd813-4f38-4961-9a32-f6f5202a2202" />
+  <img width="1882" height="1211" alt="Screenshot 2026-07-11 at 12 39 47 PM" src="https://github.com/user-attachments/assets/fc665c62-60a3-4a86-bdbb-274d3564aeb0" />
+  <img width="1882" height="1211" alt="Screenshot 2026-07-11 at 12 40 05 PM" src="https://github.com/user-attachments/assets/21dc04d6-3cfa-4a1a-91d7-cf827b4565dd" />
+
 </p>
 
 
