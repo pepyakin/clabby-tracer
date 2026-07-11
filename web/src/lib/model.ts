@@ -575,6 +575,12 @@ export interface CompareLatencyPathProps {
   onSelectSpan: (spanId: string) => void
 }
 
+export interface LatencyPathDiffProps {
+  baseline: TraceModel
+  candidate: TraceModel
+  onSelectPath: (pathKey: string) => void
+}
+
 export interface HeatMapProps {
   model: TraceModel
 }

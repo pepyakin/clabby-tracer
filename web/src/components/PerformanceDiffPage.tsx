@@ -14,6 +14,7 @@ import type {
 import { colorIndexForService, instanceColorVar } from '../lib/model'
 import { formatNs, shortId } from '../lib/format'
 import FlameTimeline from './FlameTimeline'
+import LatencyPathDiff from './LatencyPathDiff'
 import { CumulativeDistributionPlot, NodeDistributionPlot, quantileValue } from './DistributionPlots'
 import PerformanceSourceModal from './PerformanceSourceModal'
 import './PerformanceDiffPage.css'
@@ -801,7 +802,11 @@ export default function PerformanceDiffPage({
   const candidateModel: TraceModel | null = candidateQuery !== null
     ? candidateLive.data ?? null
     : candidate?.kind !== 'query' && candidate !== null ? candidate.model : null
-  const analysis = usePerformanceAnalysis(baselineModel, candidateModel, threshold)
+  const analysis = usePerformanceAnalysis(
+    view === 'latency' ? null : baselineModel,
+    view === 'latency' ? null : candidateModel,
+    threshold,
+  )
   const selected = analysis.result?.paths.find((row) => row.key === selectedPath) ?? null
 
   const route = (patch: Partial<Parameters<PerformanceDiffPageProps['onRouteChange']>[0]>) =>
@@ -869,6 +874,25 @@ export default function PerformanceDiffPage({
       </div>}
       {baselineModel === null || candidateModel === null ? (
         null
+      ) : view === 'latency' ? (
+        <div className="pd-workspace">
+          <div className="pd-content">
+            <div className="pd-controls">
+              <span className="pd-view-tabs">
+                {(['overview', 'latency', 'paths', 'nodes'] as const).map((item) => (
+                  <button type="button" key={item} className={`chip ${view === item ? 'active' : ''}`} onClick={() => route({ view: item })}>
+                    {item === 'paths' ? 'hot paths' : item === 'latency' ? 'latency path' : item}
+                  </button>
+                ))}
+              </span>
+            </div>
+            <LatencyPathDiff
+              baseline={baselineModel}
+              candidate={candidateModel}
+              onSelectPath={(key) => route({ view: 'paths', selectedPath: key })}
+            />
+          </div>
+        </div>
       ) : analysis.loading ? (
         <div className="empty-state pd-empty"><span className="spinner" /> analyzing 10,000 resamples…</div>
       ) : analysis.error !== null ? (
@@ -887,8 +911,10 @@ export default function PerformanceDiffPage({
           ) : <div className="pd-content">
             <div className="pd-controls">
               <span className="pd-view-tabs">
-                {(['overview', 'paths', 'nodes'] as const).map((item) => (
-                  <button type="button" key={item} className={`chip ${view === item ? 'active' : ''}`} onClick={() => route({ view: item })}>{item === 'paths' ? 'hot paths' : item}</button>
+                {(['overview', 'latency', 'paths', 'nodes'] as const).map((item) => (
+                  <button type="button" key={item} className={`chip ${view === item ? 'active' : ''}`} onClick={() => route({ view: item })}>
+                    {item === 'paths' ? 'hot paths' : item === 'latency' ? 'latency path' : item}
+                  </button>
                 ))}
               </span>
               {analysis.result.root !== null && <ComparisonSummary row={analysis.result.root} diff={analysis.result} metric={metric} />}

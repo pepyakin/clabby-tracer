@@ -85,7 +85,8 @@
 .pd-content { flex: 1; overflow: hidden; }
 .pd-content > .pd-flame-panel,
 .pd-content > .pd-explorer,
-.pd-content > .pd-node-explorer { min-height: 0; flex: 1; }
+.pd-content > .pd-node-explorer,
+.pd-content > .lpd { min-height: 0; flex: 1; }
 .pd-controls { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; align-items: center; gap: var(--pd-space-3); }
 .pd-controls,
 .pd-warning,
