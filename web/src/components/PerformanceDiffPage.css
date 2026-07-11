@@ -439,24 +439,6 @@
 .pd-behavior-card { grid-area: behavior; }
 .pd-node-impact { grid-area: impact; }
 .pd-investigation-card { min-width: 0; overflow: hidden; }
-.pd-node-distribution { display: block; width: 100%; height: 160px; margin-top: 4px; }
-.pd-node-distribution line.grid { stroke: var(--border); stroke-width: 1; }
-.pd-node-distribution text { fill: var(--text-faint); font: 10px var(--font-mono); }
-.pd-node-distribution text.lane-label { fill: var(--text-muted); font-size: 11px; }
-.pd-node-distribution line.whisker { stroke: var(--text-muted); stroke-width: 2; }
-.pd-node-distribution rect.band { fill: color-mix(in srgb, var(--text-muted) 20%, transparent); }
-.pd-node-distribution .candidate line.whisker { stroke: var(--accent); }
-.pd-node-distribution .candidate rect.band { fill: color-mix(in srgb, var(--accent) 20%, transparent); }
-.pd-node-distribution line.median { stroke: var(--text); stroke-width: 2; }
-.pd-node-distribution circle { stroke: var(--surface); stroke-width: 1; opacity: 0.9; }
-.pd-ecdf { display: block; width: 100%; height: 180px; margin-top: 6px; color: var(--border-strong); }
-.pd-ecdf line.axis,
-.pd-ecdf line.tick { stroke: var(--border-strong); stroke-width: 1; }
-.pd-ecdf line.grid { stroke: var(--border); stroke-width: 1; }
-.pd-ecdf path { fill: none; stroke-width: 2; }
-.pd-ecdf path.baseline { stroke: var(--text-muted); }
-.pd-ecdf path.candidate { stroke: var(--accent); }
-.pd-ecdf text { fill: var(--text-faint); font: 10px var(--font-mono); }
 .pd-quantile-shift { display: block; width: 100%; height: 150px; margin-top: 4px; }
 .pd-quantile-shift line.zero,
 .pd-quantile-shift line.tick { stroke: var(--border-strong); stroke-width: 1; }

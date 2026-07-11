@@ -504,6 +504,34 @@ export interface HeatMapProps {
   model: TraceModel
 }
 
+export interface DistributionPoint {
+  id: string
+  value: number
+  colorIndex: number
+}
+
+export interface DistributionLane {
+  label: string
+  points: DistributionPoint[]
+  tone: 'baseline' | 'candidate' | 'accent'
+}
+
+export interface NodeDistributionPlotProps {
+  lanes: DistributionLane[]
+  ariaLabel: string
+}
+
+export interface DistributionSeries {
+  label: string
+  values: number[]
+  tone: 'baseline' | 'candidate' | 'accent'
+}
+
+export interface CumulativeDistributionPlotProps {
+  series: DistributionSeries[]
+  ariaLabel: string
+}
+
 export interface SearchPanelProps {
   filter: FilterState
   onChange: (f: FilterState) => void
