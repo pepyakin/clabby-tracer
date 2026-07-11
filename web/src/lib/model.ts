@@ -161,6 +161,62 @@ export interface SpanMatch {
   startUnixMs: number
 }
 
+// ---------------------------------------------------- latency attribution --
+
+export interface LatencySegment {
+  kind: 'span' | 'unattributed'
+  startNs: number
+  durationNs: number
+  path: string[] | null
+  spanId: string | null
+  ambiguous: boolean
+}
+
+export interface LatencyContribution {
+  key: string
+  path: string[]
+  durationNs: number
+}
+
+export interface LatencyOperation {
+  rootSpanId: string
+  instanceId: string
+  startNs: number
+  durationNs: number
+  attributedNs: number
+  unattributedNs: number
+  ambiguousNs: number
+  segments: LatencySegment[]
+  contributions: LatencyContribution[]
+}
+
+export interface LatencyPathSummary {
+  key: string
+  path: string[]
+  meanNs: number
+  p95Ns: number
+  totalNs: number
+  coverage: number
+}
+
+export interface LatencyInstanceSummary {
+  instanceId: string
+  meanNs: number
+  p95Ns: number
+  operations: number
+}
+
+export interface LatencyAnalysis {
+  operations: LatencyOperation[]
+  representative: LatencyOperation | null
+  paths: LatencyPathSummary[]
+  instances: LatencyInstanceSummary[]
+  meanDurationNs: number
+  p95DurationNs: number
+  meanUnattributedNs: number
+  meanAmbiguousNs: number
+}
+
 // ------------------------------------------------------ performance diff --
 
 export type PerformanceEvidence =
