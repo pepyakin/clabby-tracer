@@ -72,6 +72,13 @@ export function buildCompareQuery(filter: FilterState, range: TimeRange, target:
   return p.toString()
 }
 
+export function compareQueryLabel(query: string): string {
+  const params = new URLSearchParams(query)
+  const name = params.get('name')?.trim() || 'comparison'
+  const attr = params.getAll('attr')[0]
+  return attr === undefined ? name : `${name} · ${attr}`
+}
+
 export class ApiClient implements ITempoClient {
   readonly baseUrl: string
 

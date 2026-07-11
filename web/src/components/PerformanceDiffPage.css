@@ -60,13 +60,9 @@
 }
 .pd-source-current { justify-content: space-between; }
 .pd-source-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.pd-upload { color: var(--accent-text); cursor: pointer; white-space: nowrap; }
-.pd-upload input { display: none; }
-.pd-or { text-transform: uppercase; font-size: var(--font-size-xs); }
-.pd-query-form { min-width: 0; flex: 1; display: flex; align-items: stretch; gap: 6px; }
-.pd-query-form .input { min-width: 0; flex: 1; }
-.pd-query-form .input,
-.pd-query-form .btn { height: var(--pd-control-height); box-sizing: border-box; }
+.pd-source-choose { justify-content: space-between; }
+.pd-source-choose > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.pd-source-choose > div > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .pd-source-error { padding: 0 12px 8px; color: var(--error); }
 .pd-swap { align-self: center; font-size: 16px; }
 .pd-empty { flex: 1; }

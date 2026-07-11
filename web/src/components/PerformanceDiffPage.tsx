@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type RefObject, type WheelEvent as ReactWheelEvent } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { compareQueryLabel } from '../api/client'
 import type {
   PerformanceDiffPageProps,
   PerformanceDiff,
@@ -11,38 +12,15 @@ import type {
   TraceModel,
 } from '../lib/model'
 import { colorIndexForService, instanceColorVar } from '../lib/model'
-import { importTraceExport } from '../lib/export'
 import { formatNs, shortId } from '../lib/format'
 import FlameTimeline from './FlameTimeline'
+import PerformanceSourceModal from './PerformanceSourceModal'
 import './PerformanceDiffPage.css'
 
-function queryLabel(query: string): string {
-  const params = new URLSearchParams(query)
-  const name = params.get('name')?.trim() || 'comparison'
-  const attr = params.getAll('attr')[0]
-  return attr === undefined ? name : `${name} · ${attr}`
-}
-
-function normalizeQuery(input: string): string | null {
-  const value = input.trim()
-  if (value === '') return null
-  const hashMarker = '#/compare?'
-  const hashAt = value.indexOf(hashMarker)
-  if (hashAt >= 0) return value.slice(hashAt + hashMarker.length)
-  const apiMarker = '/api/v1/compare?'
-  const apiAt = value.indexOf(apiMarker)
-  if (apiAt >= 0) return value.slice(apiAt + apiMarker.length)
-  return value.startsWith('?') ? value.slice(1) : value
-}
-
-async function readExport(file: File): Promise<PerformanceSource> {
-  let value: unknown
-  try {
-    value = JSON.parse(await file.text())
-  } catch {
-    throw new Error(`${file.name} is not valid JSON`)
-  }
-  return { kind: 'export', label: file.name, model: importTraceExport(value) }
+function sourceSpanName(source: PerformanceSource | null): string {
+  if (source === null) return ''
+  if (source.kind === 'query') return new URLSearchParams(source.query).get('name')?.trim() ?? ''
+  return source.model.instances[0]?.rootSpans[0]?.name ?? ''
 }
 
 interface SourceCardProps {
@@ -50,23 +28,11 @@ interface SourceCardProps {
   source: PerformanceSource | null
   loading: boolean
   error: string | null
-  onQuery: (query: string) => void
-  onFile: (source: PerformanceSource) => void
+  onChoose: () => void
   onClear: () => void
 }
 
-function SourceCard({ side, source, loading, error, onQuery, onFile, onClear }: SourceCardProps) {
-  const [draft, setDraft] = useState('')
-  const [fileError, setFileError] = useState<string | null>(null)
-  const chooseFile = async (file: File | undefined) => {
-    if (file === undefined) return
-    setFileError(null)
-    try {
-      onFile(await readExport(file))
-    } catch (err) {
-      setFileError(err instanceof Error ? err.message : String(err))
-    }
-  }
+function SourceCard({ side, source, loading, error, onChoose, onClear }: SourceCardProps) {
   return (
     <section className="panel pd-source">
       <div className="panel-header">
@@ -82,43 +48,22 @@ function SourceCard({ side, source, loading, error, onQuery, onFile, onClear }: 
         <div className="pd-source-current">
           <span className="pd-source-label" title={source.label}>{source.label}</span>
           {loading && <span className="spinner" />}
-          {source.kind === 'export' && (
+          {source.kind !== 'query' && (
             <span className="faint mono-num">
               {source.model.instances.length} nodes · {source.model.instances.reduce((sum, instance) => sum + instance.rootSpans.length, 0)} operations
             </span>
           )}
         </div>
       ) : (
-        <div className="pd-source-empty">
-          <label className="pd-upload">
-            <span>upload trace export</span>
-            <input
-              type="file"
-              accept="application/json,.json"
-              onChange={(event) => void chooseFile(event.target.files?.[0])}
-            />
-          </label>
-          <span className="faint pd-or">or</span>
-          <form
-            className="pd-query-form"
-            onSubmit={(event) => {
-              event.preventDefault()
-              const query = normalizeQuery(draft)
-              if (query !== null) onQuery(query)
-            }}
-          >
-            <input
-              className="input"
-              value={draft}
-              onChange={(event) => setDraft(event.target.value)}
-              placeholder="paste compare URL or query"
-              aria-label={`${side} compare URL`}
-            />
-            <button className="btn btn-sm" type="submit" disabled={draft.trim() === ''}>use</button>
-          </form>
+        <div className="pd-source-empty pd-source-choose">
+          <div>
+            <strong>Choose {side}</strong>
+            <span className="faint">Search spans or upload a trace export.</span>
+          </div>
+          <button type="button" className="btn btn-primary btn-sm" onClick={onChoose}>choose source</button>
         </div>
       )}
-      {(error ?? fileError) !== null && <div className="pd-source-error">{error ?? fileError}</div>}
+      {error !== null && <div className="pd-source-error">{error}</div>}
     </section>
   )
 }
@@ -875,6 +820,7 @@ export default function PerformanceDiffPage({
   threshold,
   view,
   selectedPath,
+  client,
   loadQuery,
   onCaptureBaseline,
   onCaptureCandidate,
@@ -882,6 +828,7 @@ export default function PerformanceDiffPage({
 }: PerformanceDiffPageProps) {
   const [detailsOpen, setDetailsOpen] = useState(false)
   const [metric, setMetric] = useState<PerformanceMetric>('mean')
+  const [pickerSide, setPickerSide] = useState<'baseline' | 'candidate' | null>(null)
   const baselineLive = useQuery({
     queryKey: ['performance-source', baselineQuery],
     queryFn: () => loadQuery(baselineQuery!),
@@ -894,27 +841,39 @@ export default function PerformanceDiffPage({
   })
   const baseline = useMemo<PerformanceSource | null>(() => {
     if (baselineQuery !== null) {
-      return { kind: 'query', query: baselineQuery, label: queryLabel(baselineQuery) }
+      return { kind: 'query', query: baselineQuery, label: compareQueryLabel(baselineQuery) }
     }
     return baselineQuery === null ? capturedBaseline : null
   }, [baselineQuery, capturedBaseline])
   const candidate = useMemo<PerformanceSource | null>(() => {
     if (candidateQuery !== null) {
-      return { kind: 'query', query: candidateQuery, label: queryLabel(candidateQuery) }
+      return { kind: 'query', query: candidateQuery, label: compareQueryLabel(candidateQuery) }
     }
     return candidateQuery === null ? capturedCandidate : null
   }, [candidateQuery, capturedCandidate])
   const baselineModel: TraceModel | null = baselineQuery !== null
     ? baselineLive.data ?? null
-    : baseline?.kind === 'export' ? baseline.model : null
+    : baseline?.kind !== 'query' && baseline !== null ? baseline.model : null
   const candidateModel: TraceModel | null = candidateQuery !== null
     ? candidateLive.data ?? null
-    : candidate?.kind === 'export' ? candidate.model : null
+    : candidate?.kind !== 'query' && candidate !== null ? candidate.model : null
   const analysis = usePerformanceAnalysis(baselineModel, candidateModel, threshold)
   const selected = analysis.result?.paths.find((row) => row.key === selectedPath) ?? null
 
   const route = (patch: Partial<Parameters<PerformanceDiffPageProps['onRouteChange']>[0]>) =>
     onRouteChange({ baselineQuery, candidateQuery, threshold, view, selectedPath, ...patch })
+
+  const chooseSource = (side: 'baseline' | 'candidate', source: PerformanceSource) => {
+    const query = source.kind === 'query' ? source.query : null
+    if (side === 'baseline') {
+      onCaptureBaseline(source.kind === 'query' ? null : source)
+      route({ baselineQuery: query, selectedPath: null })
+    } else {
+      onCaptureCandidate(source.kind === 'query' ? null : source)
+      route({ candidateQuery: query, selectedPath: null })
+    }
+    setPickerSide(null)
+  }
 
   return (
     <div className="pd-page">
@@ -929,11 +888,7 @@ export default function PerformanceDiffPage({
           source={baseline}
           loading={baselineLive.isLoading}
           error={baselineLive.error === null ? null : String(baselineLive.error)}
-          onQuery={(query) => route({ baselineQuery: query })}
-          onFile={(source) => {
-            onCaptureBaseline(source)
-            route({ baselineQuery: null })
-          }}
+          onChoose={() => setPickerSide('baseline')}
           onClear={() => {
             onCaptureBaseline(null)
             route({ baselineQuery: null })
@@ -944,8 +899,8 @@ export default function PerformanceDiffPage({
           className="btn btn-ghost btn-sm pd-swap"
           disabled={baseline === null && candidate === null}
           onClick={() => {
-            onCaptureBaseline(candidate?.kind === 'export' ? candidate : null)
-            onCaptureCandidate(baseline?.kind === 'export' ? baseline : null)
+            onCaptureBaseline(candidate?.kind !== 'query' ? candidate : null)
+            onCaptureCandidate(baseline?.kind !== 'query' ? baseline : null)
             route({
               baselineQuery: candidate?.kind === 'query' ? candidate.query : null,
               candidateQuery: baseline?.kind === 'query' ? baseline.query : null,
@@ -960,14 +915,7 @@ export default function PerformanceDiffPage({
           source={candidate}
           loading={candidateLive.isLoading}
           error={candidateLive.error === null ? null : String(candidateLive.error)}
-          onQuery={(query) => {
-            onCaptureCandidate(null)
-            route({ candidateQuery: query })
-          }}
-          onFile={(source) => {
-            onCaptureCandidate(source)
-            route({ candidateQuery: null })
-          }}
+          onChoose={() => setPickerSide('candidate')}
           onClear={() => {
             onCaptureCandidate(null)
             route({ candidateQuery: null })
@@ -1025,6 +973,13 @@ export default function PerformanceDiffPage({
       ) : (
         <div className="empty-state pd-empty">no performance data</div>
       )}
+      {pickerSide !== null && <PerformanceSourceModal
+        side={pickerSide}
+        client={client}
+        initialSpanName={sourceSpanName(pickerSide === 'baseline' ? candidate : baseline)}
+        onSelect={(source) => chooseSource(pickerSide, source)}
+        onClose={() => setPickerSide(null)}
+      />}
     </div>
   )
 }

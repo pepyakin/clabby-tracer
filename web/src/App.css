@@ -146,7 +146,6 @@
   align-items: center;
   gap: 4px;
 }
-.app-compare-actions { display: flex; gap: 6px; }
 .app-mode-label {
   margin: 0 4px 0 0;
 }

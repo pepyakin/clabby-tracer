@@ -2,7 +2,7 @@ import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome'
 import { faFileExport, faMoon, faSun } from '@fortawesome/free-solid-svg-icons'
-import { ApiClient, buildCompareQuery } from './api/client'
+import { ApiClient, buildCompareQuery, compareQueryLabel } from './api/client'
 import EventDetails from './components/EventDetails'
 import ExportModal from './components/ExportModal'
 import EventsView from './components/EventsView'
@@ -124,13 +124,6 @@ function storedBaseline(): PerformanceSource | null {
   }
 }
 
-function compareLabel(query: string): string {
-  const params = new URLSearchParams(query)
-  const name = params.get('name') || 'comparison'
-  const attr = params.getAll('attr')[0]
-  return attr === undefined ? name : `${name} · ${attr}`
-}
-
 function SourcePill({ side, source, onClear }: { side: 'baseline' | 'candidate'; source: PerformanceSource; onClear: () => void }) {
   return <span className="app-source-pill chip" title={`${side}: ${source.label}`}>
     <span>{side}: {source.label}</span>
@@ -153,10 +146,10 @@ export default function App() {
 
   const diffBaseline = route.view !== 'diff' || route.baselineQuery === null
     ? capturedBaseline
-    : { kind: 'query' as const, query: route.baselineQuery, label: compareLabel(route.baselineQuery) }
+    : { kind: 'query' as const, query: route.baselineQuery, label: compareQueryLabel(route.baselineQuery) }
   const diffCandidate = route.view !== 'diff' || route.candidateQuery === null
     ? capturedCandidate
-    : { kind: 'query' as const, query: route.candidateQuery, label: compareLabel(route.candidateQuery) }
+    : { kind: 'query' as const, query: route.candidateQuery, label: compareQueryLabel(route.candidateQuery) }
 
   // The theme defaults to the OS preference and tracks it live. The toolbar
   // toggle is an in-memory override only — never persisted, and reset by the
@@ -519,14 +512,20 @@ export default function App() {
           {route.view !== 'diff' && <button
             type="button"
             className="btn btn-ghost btn-sm"
-            onClick={() => navigate({
-              view: 'diff',
-              baselineQuery: capturedBaseline?.kind === 'query' ? capturedBaseline.query : null,
-              candidateQuery: route.view === 'compare' ? route.query : null,
-              threshold: 0.02,
-              diffView: 'overview',
-              selectedPath: null,
-            })}
+            onClick={() => {
+              if (route.view === 'trace' && model !== null) {
+                const rootName = model.instances[0]?.rootSpans[0]?.name || 'trace'
+                setCapturedCandidate({ kind: 'trace', label: `${rootName} · ${shortId(model.traceId)}`, model })
+              }
+              navigate({
+                view: 'diff',
+                baselineQuery: capturedBaseline?.kind === 'query' ? capturedBaseline.query : null,
+                candidateQuery: route.view === 'compare' ? route.query : null,
+                threshold: 0.02,
+                diffView: 'overview',
+                selectedPath: null,
+              })
+            }}
           >
             performance diff
           </button>}
@@ -589,6 +588,7 @@ export default function App() {
             threshold={route.threshold}
             view={route.diffView}
             selectedPath={route.selectedPath}
+            client={client}
             loadQuery={(query) => client.compareByQuery(query)}
             onCaptureBaseline={captureBaseline}
             onCaptureCandidate={setCapturedCandidate}
@@ -650,35 +650,6 @@ export default function App() {
                     heatmap
                   </button>
                 </div>
-                {route.view === 'compare' && (
-                  <span className="app-compare-actions">
-                    <button
-                      type="button"
-                      className="btn btn-sm"
-                      onClick={() => captureBaseline({
-                        kind: 'query',
-                        query: route.query,
-                        label: compareLabel(route.query),
-                      })}
-                    >
-                      set baseline
-                    </button>
-                    <button
-                      type="button"
-                      className="btn btn-primary btn-sm"
-                      onClick={() => navigate({
-                        view: 'diff',
-                        baselineQuery: capturedBaseline?.kind === 'query' ? capturedBaseline.query : null,
-                        candidateQuery: route.query,
-                        threshold: 0.02,
-                        diffView: 'overview',
-                        selectedPath: null,
-                      })}
-                    >
-                      compare performance
-                    </button>
-                  </span>
-                )}
                 <button
                   type="button"
                   className="btn btn-ghost btn-sm app-export"

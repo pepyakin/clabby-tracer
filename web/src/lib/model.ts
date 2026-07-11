@@ -251,7 +251,16 @@ export interface PerformanceDiff {
 
 export type PerformanceSource =
   | { kind: 'query'; query: string; label: string }
+  | { kind: 'trace'; label: string; model: TraceModel }
   | { kind: 'export'; label: string; model: TraceModel }
+
+export interface PerformanceSourceModalProps {
+  side: 'baseline' | 'candidate'
+  client: ITempoClient
+  initialSpanName: string
+  onSelect: (source: PerformanceSource) => void
+  onClose: () => void
+}
 
 export interface PerformanceDiffProps {
   baseline: TraceModel
@@ -273,6 +282,7 @@ export interface PerformanceDiffPageProps {
   threshold: number
   view: PerformanceDiffView
   selectedPath: string | null
+  client: ITempoClient
   loadQuery: (query: string) => Promise<TraceModel>
   onCaptureBaseline: (source: PerformanceSource | null) => void
   onCaptureCandidate: (source: PerformanceSource | null) => void
