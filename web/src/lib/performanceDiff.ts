@@ -139,7 +139,7 @@ function metricValue(estimate: PerformanceEstimate, metric: PerformanceMetric): 
 }
 
 function metricReliability(metric: PerformanceMetric, baselineSamples: number, candidateSamples: number): boolean {
-  if (metric === 'mean' || metric === 'median') return Math.min(baselineSamples, candidateSamples) >= MIN_SAMPLES
+  if (metric === 'mean' || metric === 'median') return Math.min(baselineSamples, candidateSamples) > 0
   const tailProbability = 1 - METRIC_QUANTILES[metric]
   return Math.min(baselineSamples, candidateSamples) * tailProbability >= 2
 }
@@ -481,18 +481,21 @@ export function analyzePerformanceDiff(
     baselineInstances.length > 0 &&
     baselineInstances.length === candidateInstances.length &&
     baselineInstances.every((id, index) => id === candidateInstances[index])
-  const enoughSamples =
-    baseline.operations.length >= MIN_SAMPLES &&
-    candidate.operations.length >= MIN_SAMPLES
-  const comparisonMode: PerformanceDiff['comparisonMode'] = !enoughSamples
+  const hasSamples = baseline.operations.length > 0 && candidate.operations.length > 0
+  const comparisonMode: PerformanceDiff['comparisonMode'] = !hasSamples
     ? 'descriptive'
     : sameInstances ? 'paired' : 'unpaired'
   const inferential = comparisonMode !== 'descriptive'
-  const warning = comparisonMode === 'unpaired'
-    ? `Node identities do not overlap; using unpaired analysis across ${baselineInstances.length} baseline and ${candidateInstances.length} candidate nodes.`
-    : comparisonMode === 'descriptive'
-      ? `Inference withheld: At least ${MIN_SAMPLES} operations per side are required. Observed changes remain descriptive.`
-      : null
+  const warnings: string[] = []
+  if (!hasSamples) {
+    warnings.push('No repeated operations are available on one or both sides. Observed changes remain descriptive.')
+  } else if (baseline.operations.length < MIN_SAMPLES || candidate.operations.length < MIN_SAMPLES) {
+    warnings.push(`Low sample size: only ${baseline.operations.length} baseline and ${candidate.operations.length} candidate operations. Confidence estimates and tail percentiles may be unstable.`)
+  }
+  if (comparisonMode === 'unpaired') {
+    warnings.push(`Node identities do not overlap; using unpaired analysis across ${baselineInstances.length} baseline and ${candidateInstances.length} candidate nodes.`)
+  }
+  const warning = warnings.length === 0 ? null : warnings.join(' ')
   const keys = [...new Set([...baseline.paths.keys(), ...candidate.paths.keys()])]
   const resamples = options.resamples ?? DEFAULT_RESAMPLES
   const baseSeed = options.seed ?? 0x6d2b79f5

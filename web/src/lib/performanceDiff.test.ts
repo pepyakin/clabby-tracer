@@ -98,11 +98,11 @@ describe('analyzePerformanceDiff', () => {
     expect(added?.rawP).toBeNull()
   })
 
-  test('falls back to descriptive output for sparse comparisons', () => {
+  test('computes estimates with a low-sample warning for sparse comparisons', () => {
     const diff = analyzePerformanceDiff(model(1, 4), model(2, 4), 0.02, { resamples: 20 })
-    expect(diff.inferential).toBe(false)
-    expect(diff.root?.evidence).toBe('descriptive')
-    expect(diff.warning).toContain('At least 10')
+    expect(diff.inferential).toBe(true)
+    expect(diff.root?.relativeInterval).not.toBeNull()
+    expect(diff.warning).toContain('Low sample size')
   })
 
   test('uses unpaired inference when node sets differ', () => {

@@ -955,7 +955,7 @@ export default function PerformanceDiffPage({
                 ))}
               </span>
             </div>
-            {analysis.result.warning !== null && <div className={analysis.result.comparisonMode === 'unpaired' ? 'pd-notice' : 'pd-warning'}>{analysis.result.warning}</div>}
+            {analysis.result.warning !== null && <div className={analysis.result.inferential && !analysis.result.warning.startsWith('Low sample size') ? 'pd-notice' : 'pd-warning'}>{analysis.result.warning}</div>}
             {view === 'overview' && (
               <ImpactTree rows={analysis.result.paths} metric={metric} onMetricChange={setMetric} selectedKey={selectedPath} onSelect={(key) => route({ selectedPath: key })} />
             )}
