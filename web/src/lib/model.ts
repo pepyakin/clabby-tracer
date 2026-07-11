@@ -581,10 +581,6 @@ export interface LatencyPathDiffProps {
   onSelectPath: (pathKey: string) => void
 }
 
-export interface HeatMapProps {
-  model: TraceModel
-}
-
 export interface DistributionPoint {
   id: string
   value: number

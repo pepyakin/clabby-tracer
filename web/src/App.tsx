@@ -10,7 +10,6 @@ import SpanStats from './components/SpanStats'
 import CompareStats from './components/CompareStats'
 import CompareHotPaths from './components/CompareHotPaths'
 import CompareLatencyPath from './components/CompareLatencyPath'
-import HeatMap from './components/HeatMap'
 import FlameGraph from './components/FlameGraph'
 import PerformanceDiffPage from './components/PerformanceDiffPage'
 import SearchPanel from './components/SearchPanel'
@@ -329,7 +328,7 @@ export default function App() {
   const model = active.data ?? null
   const viewKey = route.view === 'compare' ? `compare:${route.query}` : traceId
 
-  const [tab, setTab] = useState<'flame' | 'events' | 'stats' | 'heatmap' | 'hotpaths' | 'latency'>('flame')
+  const [tab, setTab] = useState<'flame' | 'events' | 'stats' | 'hotpaths' | 'latency'>('flame')
   // The details pane shows either a span or an event.
   const [selected, setSelected] = useState<
     { kind: 'span'; spanId: string } | { kind: 'event'; event: SpanEvent } | null
@@ -661,12 +660,7 @@ export default function App() {
                     >
                       hot paths
                     </button>
-                  </> : <button
-                    className={`chip ${tab === 'heatmap' ? 'active' : ''}`}
-                    onClick={() => setTab('heatmap')}
-                  >
-                    heatmap
-                  </button>}
+                  </> : null}
                 </div>
                 <button
                   type="button"
@@ -716,7 +710,6 @@ export default function App() {
                     />
                   )}
                   {tab === 'stats' && (route.view === 'compare' ? <CompareStats model={model} /> : <SpanStats model={model} />)}
-                  {tab === 'heatmap' && <HeatMap model={model} />}
                   {tab === 'hotpaths' && <CompareHotPaths model={model} onSelectSpan={selectSpan} />}
                   {tab === 'latency' && <CompareLatencyPath model={model} onSelectSpan={selectSpan} />}
                 </div>

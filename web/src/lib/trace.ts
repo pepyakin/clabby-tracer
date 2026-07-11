@@ -557,7 +557,7 @@ export function buildAggregateTree(model: TraceModel, hidden: ReadonlySet<string
  * non-overlapping subtrees pack onto the same rows (the flame packer handles
  * the layout). Span ids are prefixed per-match so ids drawn from separate
  * source traces never collide. The result is a normal `TraceModel` that the
- * flame, stats, and heatmap views render directly.
+ * flame and stats views render directly.
  *
  * Inter-lane offsets pass through the millisecond-domain `startUnixMs`, so skew
  * is accurate to well under a microsecond (within-lane offsets stay exact).
