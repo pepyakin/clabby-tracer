@@ -112,6 +112,28 @@ interface View {
   t1: number
 }
 
+// Linear 500ms ramp, with no delay: pan 2→4 view widths/s; zoom 3→5.25
+// doublings/s. Arrow scrolling uses the pan rate in viewport heights/s.
+export function keyboardNavigationSpeed(heldSeconds: number, motion: 'pan' | 'zoom'): number {
+  const progress = clamp(heldSeconds / 0.5, 0, 1)
+  return motion === 'pan' ? 2 * (1 + progress) : 3 * (1 + 0.75 * progress)
+}
+
+/** Integrate viewport-relative pan and exponential, cursor-anchored zoom. */
+export function navigateFlameView(
+  view: View, extent: View, pan: number, zoom: number, anchor: number, dt: number,
+): View {
+  const span = Math.max(1, extent.t1 - extent.t0)
+  const win = clamp(view.t1 - view.t0, Math.min(MIN_WINDOW_NS, span), span)
+  const start = clamp(view.t0, extent.t0, extent.t1 - win)
+  const nextWin = clamp(win * Math.exp(zoom * dt), Math.min(MIN_WINDOW_NS, span), span)
+  // Integrate panning over the changing window, including simultaneous W+D.
+  const meanWin = nextWin === win ? win : (nextWin - win) / Math.log(nextWin / win)
+  const t0 = clamp(start + (win - nextWin) * anchor + pan * meanWin * dt,
+    extent.t0, extent.t1 - nextWin)
+  return { t0, t1: t0 + nextWin }
+}
+
 interface Geom {
   plotX0: number
   plotW: number
@@ -812,7 +834,6 @@ export default function FlameGraph(props: FlameGraphProps) {
     onToggleAll,
   } = props
 
-  const rootRef = useRef<HTMLDivElement | null>(null)
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const [scrollRoot, setScrollRoot] = useState<HTMLDivElement | null>(null)
   const [canvasWidth, setCanvasWidth] = useState(0)
@@ -1313,6 +1334,90 @@ export default function FlameGraph(props: FlameGraphProps) {
     schedule()
   }, [hideTip, schedule])
 
+  // Held keys drive a frame-timed loop, independent of OS key-repeat delay.
+  useEffect(() => {
+    const scroll = scrollRoot
+    if (!scroll) return
+    const held = new Map<string, number>()
+    let frame = 0
+    let lastTime = 0
+    let mouseX: number | null = null
+    const stop = () => {
+      held.clear()
+      cancelAnimationFrame(frame)
+      frame = 0
+    }
+    const tick = (now: number) => {
+      const dt = clamp((now - lastTime) / 1000, 0, 0.05)
+      lastTime = now
+      const speed = (code: string, motion: 'pan' | 'zoom') => {
+        const since = held.get(code)
+        return since === undefined ? 0 : keyboardNavigationSpeed(
+          (now - since) / 1000 - dt / 2, motion,
+        )
+      }
+      // Opposite directions cancel, even when one was held longer.
+      const pan = held.has('KeyA') && held.has('KeyD') ? 0
+        : speed('KeyD', 'pan') - speed('KeyA', 'pan')
+      const zoom = held.has('KeyW') && held.has('KeyS') ? 0 : Math.LN2 * (
+        speed('KeyS', 'zoom') - speed('KeyW', 'zoom')
+      )
+      const vertical = held.has('ArrowUp') && held.has('ArrowDown') ? 0
+        : speed('ArrowDown', 'pan') - speed('ArrowUp', 'pan')
+      if (vertical !== 0) {
+        scroll.scrollTop += vertical * scroll.clientHeight * dt
+        hideTip()
+      }
+      if (pan !== 0 || zoom !== 0) {
+        const { lo, hi } = rangeRef.current
+        const g = geomRef.current
+        const anchor = mouseX === null || !g ? 0.5
+          : clamp((mouseX - scroll.getBoundingClientRect().left - g.plotX0) / g.plotW, 0, 1)
+        const extent = { t0: lo, t1: hi }
+        const next = navigateFlameView(viewRef.current ?? extent, extent, pan, zoom, anchor, dt)
+        applyView(next.t0, next.t1)
+      }
+      frame = requestAnimationFrame(tick)
+    }
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey || e.altKey || e.isComposing) {
+        stop()
+        return
+      }
+      if (e.target !== scroll) return
+      if (e.defaultPrevented || !['KeyW', 'KeyA', 'KeyS', 'KeyD', 'ArrowUp', 'ArrowDown'].includes(e.code)) return
+      e.preventDefault()
+      if (!held.has(e.code)) held.set(e.code, performance.now())
+      if (!frame) {
+        lastTime = performance.now()
+        frame = requestAnimationFrame(tick)
+      }
+    }
+    const onKeyUp = (e: KeyboardEvent) => {
+      held.delete(e.code)
+      if (held.size === 0) stop()
+    }
+    const onPointerMove = (e: PointerEvent) => { mouseX = e.clientX }
+    const onPointerLeave = () => { mouseX = null }
+    scroll.addEventListener('keydown', onKeyDown)
+    scroll.addEventListener('blur', stop, true)
+    scroll.addEventListener('pointermove', onPointerMove)
+    scroll.addEventListener('pointerleave', onPointerLeave)
+    window.addEventListener('keyup', onKeyUp)
+    window.addEventListener('blur', stop)
+    document.addEventListener('visibilitychange', stop)
+    return () => {
+      stop()
+      scroll.removeEventListener('keydown', onKeyDown)
+      scroll.removeEventListener('blur', stop, true)
+      scroll.removeEventListener('pointermove', onPointerMove)
+      scroll.removeEventListener('pointerleave', onPointerLeave)
+      window.removeEventListener('keyup', onKeyUp)
+      window.removeEventListener('blur', stop)
+      document.removeEventListener('visibilitychange', stop)
+    }
+  }, [applyView, hideTip, scrollRoot, model, mode, focusName])
+
   // Reset zoom (fit) when the trace, mode, or focus changes.
   useLayoutEffect(() => {
     viewRef.current = null
@@ -1446,7 +1551,8 @@ export default function FlameGraph(props: FlameGraphProps) {
   }, [])
 
   const startPan = (canvas: HTMLCanvasElement, startX: number) => {
-    rootRef.current?.focus()
+    // Focus the scrolling viewport so Page Up/Down retain native behavior.
+    scrollRef.current?.focus({ preventScroll: true })
     suppressClickRef.current = false
     const g = geomRef.current
     if (!g) return
@@ -1568,7 +1674,7 @@ export default function FlameGraph(props: FlameGraphProps) {
   const shownInstances = displayedLanes.length
 
   return (
-    <div className="fg" ref={rootRef} tabIndex={0} onKeyDown={handleKeyDown}>
+    <div className="fg" onKeyDown={handleKeyDown}>
       <div className="fg-header">
         <span className="fg-header-title" title={rootName}>
           {rootName}
@@ -1704,7 +1810,14 @@ export default function FlameGraph(props: FlameGraphProps) {
         <canvas ref={minimapRef} className="fg-timeline-minimap" />
       </FlameTimeline>
 
-      <div className="fg-scroll" ref={bindScroll}>
+      <div
+        className="fg-scroll"
+        ref={bindScroll}
+        tabIndex={0}
+        role="region"
+        aria-label="Flame graph. Hold W/S to zoom in/out at the cursor; A/D to pan left/right; Up/Down to scroll. Page Up/Down scroll by a page."
+        aria-keyshortcuts="W A S D ArrowUp ArrowDown PageUp PageDown"
+      >
         <div className="fg-canvas-wrap">
           {mode === 'instances' ? (
             <>
