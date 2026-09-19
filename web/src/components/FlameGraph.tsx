@@ -35,6 +35,7 @@ import {
   type SpanNode,
 } from '../lib/model'
 import { buildAggregateTree } from '../lib/trace'
+import { spanSubsystem, subsystemPalette } from '../lib/subsystem'
 import FlameTimeline from './FlameTimeline'
 import Select from './Select'
 import './FlameGraph.css'
@@ -71,6 +72,7 @@ interface InstanceColor {
   fills: string[]
   /** Cell border: a lighter tint of the base, like a .btn edge. */
   border: string
+  label: string
 }
 
 interface Theme {
@@ -90,6 +92,7 @@ interface Theme {
   lum: number
   /** Memoized hue → derived colors, so a frame never recomputes per span. */
   colorCache: Map<number, InstanceColor>
+  unknownSubsystem: InstanceColor
   font: string
   fontSmall: string
   charW: number
@@ -101,7 +104,7 @@ function instanceColor(theme: Theme, hue: number): InstanceColor {
   let c = theme.colorCache.get(hue)
   if (c === undefined) {
     const base = hslCss(hue, theme.sat, theme.lum)
-    c = { base, fills: alphaRamp(base), border: lighten(base, 0.4) }
+    c = { base, fills: alphaRamp(base), border: lighten(base, 0.4), label: contrastText(base, theme.bg, theme.text) }
     theme.colorCache.set(hue, c)
   }
   return c
@@ -266,6 +269,25 @@ function alphaRamp(color: string): string[] {
   return ramp
 }
 
+/** Pick the more legible of the theme's light/dark foregrounds, once per hue. */
+function contrastText(base: string, a: string, b: string): string {
+  const luminance = (color: string) => {
+    const rgb = parseRgb(color)
+    if (!rgb) return 0
+    const [r, g, blue] = rgb.map((value) => {
+      const c = value / 255
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4
+    })
+    return 0.2126 * r + 0.7152 * g + 0.0722 * blue
+  }
+  const background = luminance(base) + 0.05
+  const contrast = (color: string) => {
+    const foreground = luminance(color) + 0.05
+    return Math.max(background, foreground) / Math.min(background, foreground)
+  }
+  return contrast(a) >= contrast(b) ? a : b
+}
+
 function resolveTheme(): Theme {
   const cs = getComputedStyle(document.documentElement)
   const v = (name: string, fallback: string) =>
@@ -273,12 +295,15 @@ function resolveTheme(): Theme {
   const mono = v('--font-mono', 'monospace')
   const num = (name: string, fallback: number) => parseFloat(v(name, String(fallback))) || fallback
   const flameBg = v('--flame-bg', '#121217')
+  const unknown = cs.getPropertyValue('--subsystem-unknown').trim()
+  const bg = v('--bg', '#0e0e12')
+  const text = v('--text', '#e7e7ec')
   return {
-    bg: v('--bg', '#0e0e12'),
+    bg,
     flameBg,
     flameGrid: v('--flame-grid', '#1e1e25'),
     border: v('--border', '#26262e'),
-    text: v('--text', '#e7e7ec'),
+    text,
     textMuted: v('--text-muted', '#9b9ba6'),
     textFaint: v('--text-faint', '#62626d'),
     accent: v('--accent', '#7b87f7'),
@@ -293,6 +318,7 @@ function resolveTheme(): Theme {
     sat: num('--instance-sat', 72),
     lum: num('--instance-lum', 70),
     colorCache: new Map(),
+    unknownSubsystem: { base: unknown, fills: alphaRamp(unknown), border: lighten(unknown, 0.4), label: contrastText(unknown, bg, text) },
     font: `11px ${mono}`,
     fontSmall: `10px ${mono}`,
     charW: 0,
@@ -420,6 +446,7 @@ interface FlameLaneProps {
   search: string
   selfTime: boolean
   selfTimes: Map<string, number>
+  subsystemColors: ReadonlyMap<string, number> | null
   scrollRoot: HTMLElement | null
   paintVersion: number
   onHover: (hit: HitRect, clientX: number, clientY: number) => void
@@ -447,6 +474,7 @@ function FlameLaneTile(props: FlameLaneTileProps) {
     search,
     selfTime,
     selfTimes,
+    subsystemColors,
     paintVersion,
     startRow,
     rowCount,
@@ -510,8 +538,8 @@ function FlameLaneTile(props: FlameLaneTileProps) {
     ctx.lineTo(GUTTER - 0.5, cssHeight)
     ctx.stroke()
 
-    const color = instanceColor(theme, lane.inst.colorIndex)
-    ctx.fillStyle = color.base
+    const laneColor = instanceColor(theme, lane.inst.colorIndex)
+    ctx.fillStyle = laneColor.base
     ctx.fillRect(0, 2, 3, Math.max(cssHeight - (last ? ROW_H : 0) - 4, 1))
     if (startRow === 0) {
       ctx.font = theme.font
@@ -561,6 +589,9 @@ function FlameLaneTile(props: FlameLaneTileProps) {
       const isError = span.status === 'error' || span.level === 'error'
       ctx.globalAlpha = search !== '' && !span.name.toLowerCase().includes(search) ? 0.16 : 1
       const selfNs = selfTimes.get(span.spanId) ?? 0
+      const hue = subsystemColors?.get(span.spanId)
+      const color = subsystemColors === null ? laneColor
+        : hue === undefined ? theme.unknownSubsystem : instanceColor(theme, hue)
 
       pathRoundRect(ctx, x0, y, barWidth, BAR_H, CELL_RADIUS)
       ctx.fillStyle = color.fills[Math.min(depth, SHADE_LEVELS - 1)]
@@ -614,7 +645,7 @@ function FlameLaneTile(props: FlameLaneTileProps) {
         ctx.lineWidth = 1
       }
       if (barWidth > LABEL_MIN_W) {
-        ctx.fillStyle = theme.bg
+        ctx.fillStyle = subsystemColors === null ? theme.bg : color.label
         ctx.fillText(
           ellipsize(span.name, barWidth - 2 * CELL_PAD_X, theme.charW || 7),
           x0 + CELL_PAD_X,
@@ -690,6 +721,7 @@ function FlameLaneTile(props: FlameLaneTileProps) {
     search,
     selfTime,
     selfTimes,
+    subsystemColors,
     paintVersion,
     startRow,
     rowCount,
@@ -851,6 +883,26 @@ export default function FlameGraph(props: FlameGraphProps) {
   const [laneSort, setLaneSort] = useState<LaneSort>('order')
   // Self-time heat: color bars by exclusive (self) duration instead of instance.
   const [selfTime, setSelfTime] = useState(false)
+  const [colorBy, setColorBy] = useState<'instance' | 'subsystem'>('instance')
+
+  const subsystems = useMemo(() => {
+    const paths = new Map<string, string>()
+    for (const span of model.spans.values()) {
+      const path = spanSubsystem(span)
+      if (path) paths.set(span.spanId, path)
+    }
+    return paths
+  }, [model])
+  const palette = useMemo(() => {
+    const cs = getComputedStyle(document.documentElement)
+    return subsystemPalette(subsystems.values(),
+      parseFloat(cs.getPropertyValue('--subsystem-hue-start')),
+      parseFloat(cs.getPropertyValue('--subsystem-hue-spread')))
+  }, [subsystems, paintVersion])
+  const subsystemColors = useMemo(() => {
+    if (colorBy === 'instance') return null
+    return new Map([...subsystems].map(([id, path]) => [id, palette.get(path)!]))
+  }, [subsystems, palette, colorBy])
 
   const hideTip = useCallback(() => {
     if (tipRef.current !== null) {
@@ -1659,6 +1711,16 @@ export default function FlameGraph(props: FlameGraphProps) {
       {mode === 'instances' && (
         <div className="fg-controls">
           <Select
+            className="fg-sort fg-color-by"
+            label="color spans by"
+            value={colorBy}
+            options={[
+              { value: 'instance', label: 'color: instance' },
+              { value: 'subsystem', label: 'color: subsystem' },
+            ]}
+            onChange={setColorBy}
+          />
+          <Select
             className="fg-sort"
             label="sort lanes"
             value={laneSort}
@@ -1687,6 +1749,23 @@ export default function FlameGraph(props: FlameGraphProps) {
           >
             self-time
           </button>
+        </div>
+      )}
+
+      {mode === 'instances' && colorBy === 'subsystem' && (
+        <div className="fg-subsystems" aria-label="subsystem color legend">
+          {[...palette].map(([path, hue]) => (
+            <span key={path} className="fg-subsystem">
+              <span className="swatch" style={{ background: instanceColorVar(hue) }} />
+              {path}
+            </span>
+          ))}
+          {subsystems.size < model.spans.size && (
+            <span className="fg-subsystem" title="No subsystem, code namespace, target, or qualified span name">
+              <span className="swatch" style={{ background: 'var(--subsystem-unknown)' }} />
+              unknown
+            </span>
+          )}
         </div>
       )}
 
@@ -1722,6 +1801,7 @@ export default function FlameGraph(props: FlameGraphProps) {
                   search={spanSearch}
                   selfTime={selfTime}
                   selfTimes={selfTimes.map}
+                  subsystemColors={subsystemColors}
                   scrollRoot={scrollRoot}
                   paintVersion={paintVersion}
                   onHover={(hit, x, y) => showTip({ ...hit, x, y })}
@@ -1780,6 +1860,12 @@ export default function FlameGraph(props: FlameGraphProps) {
                   })()}
                 </span>
               </div>
+              {mode === 'instances' && colorBy === 'subsystem' && tip.kind === 'span' && (
+                <div className="fg-tooltip-row">
+                  <span className="fg-tooltip-label">subsystem</span>
+                  <span className="fg-tooltip-value">{subsystems.get(tip.selectId) ?? 'unknown'}</span>
+                </div>
+              )}
               {tip.kind === 'span' && (
                 <div className="fg-tooltip-row">
                   <span className="fg-tooltip-label">

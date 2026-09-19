@@ -118,6 +118,7 @@
   flex: none;
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   padding: 10px 0 8px;
   border-bottom: 1px solid var(--border);
@@ -139,6 +140,27 @@
 }
 .fg-sort .sel-trigger {
   height: 26px;
+}
+
+.fg-color-by {
+  width: 174px;
+}
+.fg-subsystems {
+  display: flex;
+  flex: none;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  max-height: 76px;
+  overflow-y: auto;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: var(--font-size-xs);
+}
+.fg-subsystem {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 /* -------------------------------------------------------------- timeline -- */
