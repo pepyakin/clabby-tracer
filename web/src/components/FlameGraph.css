@@ -236,8 +236,9 @@
   position: fixed;
   z-index: 20;
   pointer-events: none;
-  min-width: 190px;
-  max-width: 280px;
+  width: max-content;
+  min-width: min(190px, calc(100vw - 8px));
+  max-width: min(280px, calc(100vw - 8px));
   padding: 8px 10px;
   background: var(--surface-raised);
   border: 1px solid var(--border-strong);
@@ -289,8 +290,17 @@
   color: var(--text);
 }
 
+.fg-tooltip-target-row {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  margin: 4px 0;
+}
 .fg-tooltip-target {
+  display: block;
   min-width: 0;
+  /* Namespace separators provide normal breaks; only an oversized identifier
+     needs this last-resort wrap on a narrow viewport. */
   overflow-wrap: anywhere;
 }
 

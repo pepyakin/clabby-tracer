@@ -14,6 +14,7 @@
  * by row so mousemove never scans every span.
  */
 import {
+  Fragment,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -891,6 +892,7 @@ export default function FlameGraph(props: FlameGraphProps) {
 
   const [tip, setTip] = useState<Tip | null>(null)
   const tipRef = useRef<Tip | null>(null)
+  const tooltipElementRef = useRef<HTMLDivElement | null>(null)
   // State mirror of viewRef so the header timestamps re-render on zoom/pan.
   const [viewWin, setViewWin] = useState<View | null>(null)
   // Event overlay: level-colored diamonds at event times ('instances' mode).
@@ -1698,15 +1700,17 @@ export default function FlameGraph(props: FlameGraphProps) {
   // ----------------------------------------------------------------- view --
 
   const tipInst = tip ? instMap.get(tip.instanceId) : undefined
-  let tipLeft = 0
-  let tipTop = 0
-  if (tip) {
-    const w = window.innerWidth
-    const h = window.innerHeight
-    tipLeft = Math.max(4, Math.min(tip.x + 14, w - 270))
-    tipTop = tip.y + 16
-    if (tipTop > h - 140) tipTop = Math.max(4, tip.y - 140)
-  }
+  useLayoutEffect(() => {
+    const element = tooltipElementRef.current
+    if (!tip || !element) return
+    // Target paths can span several lines; position using the actual size.
+    const { width, height } = element.getBoundingClientRect()
+    const left = Math.max(4, Math.min(tip.x + 14, window.innerWidth - width - 4))
+    const below = tip.y + 16
+    const top = below + height <= window.innerHeight - 4 ? below : Math.max(4, tip.y - height - 16)
+    element.style.left = `${left}px`
+    element.style.top = `${top}px`
+  }, [tip])
 
   const winT0 = viewWin ? clamp(viewWin.t0, rangeLo, rangeHi) : rangeLo
   const winT1 = viewWin ? clamp(viewWin.t1, rangeLo, rangeHi) : rangeHi
@@ -1825,7 +1829,7 @@ export default function FlameGraph(props: FlameGraphProps) {
             value={colorBy}
             options={[
               { value: 'instance', label: 'color: instance' },
-              { value: 'subsystem', label: 'color: subsystem' },
+              { value: 'subsystem', label: 'color: target' },
             ]}
             onChange={setColorBy}
           />
@@ -1862,7 +1866,7 @@ export default function FlameGraph(props: FlameGraphProps) {
       )}
 
       {mode === 'instances' && colorBy === 'subsystem' && (
-        <div className="fg-subsystems" aria-label="subsystem color legend">
+        <div className="fg-subsystems" aria-label="target color legend">
           {paletteEntries.filter(([path]) => !path.includes('::')).map(([path, hue]) => (
             <span key={path} className="fg-subsystem">
               <span className="swatch" style={{ background: instanceColorVar(hue) }} />
@@ -1870,7 +1874,7 @@ export default function FlameGraph(props: FlameGraphProps) {
             </span>
           ))}
           {subsystems.size < model.spans.size && (
-            <span className="fg-subsystem" title="No subsystem, code namespace, target, or qualified span name">
+            <span className="fg-subsystem" title="No target metadata or qualified span name">
               <span className="swatch" style={{ background: 'var(--subsystem-unknown)' }} />
               unknown
             </span>
@@ -1968,7 +1972,7 @@ export default function FlameGraph(props: FlameGraphProps) {
             />
           )}
           {tip && (
-            <div className="fg-tooltip" style={{ left: tipLeft, top: tipTop }}>
+            <div className="fg-tooltip" ref={tooltipElementRef} style={{ left: tip.x + 14, top: tip.y + 16 }}>
               <div className="fg-tooltip-name">
                 <span className="fg-tooltip-kind">{tip.kind}</span>
                 {tip.name || '(unnamed)'}
@@ -1993,9 +1997,15 @@ export default function FlameGraph(props: FlameGraphProps) {
                 </span>
               </div>
               {mode === 'instances' && colorBy === 'subsystem' && tip.kind === 'span' && (
-                <div className="fg-tooltip-row">
-                  <span className="fg-tooltip-label">subsystem</span>
-                  <span className="fg-tooltip-value fg-tooltip-target">{subsystems.get(tip.selectId) ?? 'unknown'}</span>
+                <div className="fg-tooltip-row fg-tooltip-target-row">
+                  <span className="fg-tooltip-label">target</span>
+                  <span className="fg-tooltip-value fg-tooltip-target">
+                    {(subsystems.get(tip.selectId) ?? 'unknown').split('::').map((part, index, parts) => (
+                      <Fragment key={index}>
+                        {part}{index < parts.length - 1 && <>::<wbr /></>}
+                      </Fragment>
+                    ))}
+                  </span>
                 </div>
               )}
               {tip.kind === 'span' && (
