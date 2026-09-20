@@ -33,7 +33,7 @@
 
   /* Subsystem families occupy separated hue bands; components stay nearby. */
   --subsystem-hue-start: 170;
-  --subsystem-hue-spread: 24;
+  --subsystem-hue-spread: 60;
 }
 
 :root[data-theme='dark'] {

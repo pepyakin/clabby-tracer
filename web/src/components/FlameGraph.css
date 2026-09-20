@@ -150,8 +150,6 @@
   flex: none;
   flex-wrap: wrap;
   gap: 6px 16px;
-  max-height: 76px;
-  overflow-y: auto;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
   color: var(--text-muted);
@@ -161,6 +159,25 @@
   display: inline-flex;
   align-items: center;
   gap: 6px;
+}
+
+.fg-target-tree {
+  width: 100%;
+  min-width: 0;
+}
+.fg-target-tree summary {
+  cursor: pointer;
+}
+.fg-target-tree-list {
+  display: flex;
+  flex-direction: column;
+  max-height: 160px;
+  overflow: auto;
+  margin-top: 6px;
+  line-height: 20px;
+}
+.fg-target-name {
+  white-space: nowrap;
 }
 
 /* -------------------------------------------------------------- timeline -- */
@@ -270,6 +287,11 @@
   align-items: center;
   gap: 6px;
   color: var(--text);
+}
+
+.fg-tooltip-target {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 /* ---------------------------------------------------------------- motion -- */

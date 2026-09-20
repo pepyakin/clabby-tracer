@@ -899,6 +899,7 @@ export default function FlameGraph(props: FlameGraphProps) {
       parseFloat(cs.getPropertyValue('--subsystem-hue-start')),
       parseFloat(cs.getPropertyValue('--subsystem-hue-spread')))
   }, [subsystems, paintVersion])
+  const paletteEntries = useMemo(() => [...palette], [palette])
   const subsystemColors = useMemo(() => {
     if (colorBy === 'instance') return null
     return new Map([...subsystems].map(([id, path]) => [id, palette.get(path)!]))
@@ -1754,7 +1755,7 @@ export default function FlameGraph(props: FlameGraphProps) {
 
       {mode === 'instances' && colorBy === 'subsystem' && (
         <div className="fg-subsystems" aria-label="subsystem color legend">
-          {[...palette].map(([path, hue]) => (
+          {paletteEntries.filter(([path]) => !path.includes('::')).map(([path, hue]) => (
             <span key={path} className="fg-subsystem">
               <span className="swatch" style={{ background: instanceColorVar(hue) }} />
               {path}
@@ -1765,6 +1766,22 @@ export default function FlameGraph(props: FlameGraphProps) {
               <span className="swatch" style={{ background: 'var(--subsystem-unknown)' }} />
               unknown
             </span>
+          )}
+          {palette.size > 0 && (
+            <details className="fg-target-tree">
+              <summary>target tree</summary>
+              <div className="fg-target-tree-list">
+                {paletteEntries.slice(0, 2000).map(([path, hue]) => {
+                  const parts = path.split('::')
+                  return <div key={path} className="fg-subsystem" title={path}
+                    style={{ paddingLeft: (parts.length - 1) * 12 }}>
+                    <span className="swatch" style={{ background: instanceColorVar(hue) }} />
+                    <span className="fg-target-name">{parts.at(-1)}</span>
+                  </div>
+                })}
+                {palette.size > 2000 && <span className="faint">Showing the first 2000 components.</span>}
+              </div>
+            </details>
           )}
         </div>
       )}
@@ -1863,7 +1880,7 @@ export default function FlameGraph(props: FlameGraphProps) {
               {mode === 'instances' && colorBy === 'subsystem' && tip.kind === 'span' && (
                 <div className="fg-tooltip-row">
                   <span className="fg-tooltip-label">subsystem</span>
-                  <span className="fg-tooltip-value">{subsystems.get(tip.selectId) ?? 'unknown'}</span>
+                  <span className="fg-tooltip-value fg-tooltip-target">{subsystems.get(tip.selectId) ?? 'unknown'}</span>
                 </div>
               )}
               {tip.kind === 'span' && (
