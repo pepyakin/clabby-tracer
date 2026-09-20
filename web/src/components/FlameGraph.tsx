@@ -139,6 +139,8 @@ interface Geom {
   plotW: number
   cssW: number
   cssH: number
+  t0: number
+  t1: number
 }
 
 interface HitRect {
@@ -845,6 +847,9 @@ export default function FlameGraph(props: FlameGraphProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null)
   const timelineRef = useRef<HTMLDivElement | null>(null)
   const minimapRef = useRef<HTMLCanvasElement | null>(null)
+  const cursorRef = useRef<HTMLDivElement | null>(null)
+  const cursorLabelRef = useRef<HTMLSpanElement | null>(null)
+  const cursorXRef = useRef<number | null>(null)
 
   const themeRef = useRef<Theme | null>(null)
   const viewRef = useRef<View | null>(null) // null = fit to full extent
@@ -1051,6 +1056,60 @@ export default function FlameGraph(props: FlameGraphProps) {
 
   // ------------------------------------------------------------ rendering --
 
+  // A DOM overlay follows the pointer without repainting spans or the minimap.
+  // Read the painted geometry so zoom, focus, and resize use the same time axis.
+  const updateCursor = useCallback(() => {
+    const cursor = cursorRef.current
+    const label = cursorLabelRef.current
+    const scroll = scrollRef.current
+    const g = geomRef.current
+    if (!cursor || !label || !scroll || !g) return
+    const x = cursorXRef.current === null ? -1
+      : cursorXRef.current - scroll.getBoundingClientRect().left
+    cursor.hidden = x < g.plotX0 || x > g.cssW
+    if (cursor.hidden) return
+    const time = g.t0 + (x - g.plotX0) / g.plotW * (g.t1 - g.t0)
+    label.textContent = formatNs(time)
+    cursor.style.transform = `translateX(${x}px)`
+    const labelX = clamp(x - label.offsetWidth / 2, g.plotX0, g.cssW - label.offsetWidth)
+    // The instances axis is sticky; merged mode's axis scrolls with its canvas.
+    label.style.transform = `translate(${labelX - x}px, ${mode === 'instances' ? scroll.scrollTop : 0}px)`
+  }, [mode])
+
+  useEffect(() => {
+    const scroll = scrollRoot
+    if (!scroll) return
+    let frame = 0
+    const update = () => {
+      if (frame) return
+      frame = requestAnimationFrame(() => {
+        frame = 0
+        updateCursor()
+      })
+    }
+    const move = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return
+      cursorXRef.current = event.clientX
+      update()
+    }
+    const hide = () => {
+      cursorXRef.current = null
+      if (cursorRef.current) cursorRef.current.hidden = true
+    }
+    scroll.addEventListener('pointermove', move)
+    scroll.addEventListener('pointerleave', hide)
+    scroll.addEventListener('scroll', update)
+    window.addEventListener('blur', hide)
+    return () => {
+      cancelAnimationFrame(frame)
+      hide()
+      scroll.removeEventListener('pointermove', move)
+      scroll.removeEventListener('pointerleave', hide)
+      scroll.removeEventListener('scroll', update)
+      window.removeEventListener('blur', hide)
+    }
+  }, [scrollRoot, updateCursor, model])
+
   const draw = () => {
     const canvas = canvasRef.current
     const scroll = scrollRef.current
@@ -1105,7 +1164,8 @@ export default function FlameGraph(props: FlameGraphProps) {
     const plotW = Math.max(1, cssW - plotX0)
     const pxPerNs = plotW / win
     const toX = (t: number) => plotX0 + (t - t0) * pxPerNs
-    geomRef.current = { plotX0, plotW, cssW, cssH }
+    geomRef.current = { plotX0, plotW, cssW, cssH, t0, t1 }
+    updateCursor()
 
     // Background.
     ctx.fillStyle = theme.flameBg
@@ -1868,6 +1928,9 @@ export default function FlameGraph(props: FlameGraphProps) {
               onDoubleClick={handleDoubleClick}
             />
           )}
+          <div ref={cursorRef} className="fg-cursor" hidden aria-hidden="true">
+            <span ref={cursorLabelRef} className="fg-cursor-label mono-num" />
+          </div>
           {tip && (
             <div className="fg-tooltip" style={{ left: tipLeft, top: tipTop }}>
               <div className="fg-tooltip-name">
